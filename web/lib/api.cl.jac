@@ -85,20 +85,56 @@ cl {
     #
     # After the socket opens we send connection_init, then start a subscription.
     # AppSync fires data messages whenever makeDigitalMove or recordPhysicalMove runs.
+    def _gemini_key() -> str {
+        return "AIzaSyCauoOGlGThybDyJucSvmJNQ2dQUpgieM4";
+    }
+
+    def _gemini(prompt: str) -> Any {
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={_gemini_key()}";
+        body = {"contents": [{"parts": [{"text": prompt}]}]};
+        return fetch(url, {
+            "method": "POST",
+            "headers": {"Content-Type": "application/json"},
+            "body": JSON.stringify(body)
+        }).then(lambda(r: Any) -> Any {
+            return r.json();
+        }).then(lambda(d: Any) -> Any {
+            if not d or not d["candidates"] or not d["candidates"][0] {
+                raise Exception("No response from Gemini");
+            }
+            return d["candidates"][0]["content"]["parts"][0]["text"];
+        });
+    }
+
+    def:pub getGameAnalysis(moveHistory: list, outcome: str, onStep: callable) -> Any {
+        sans = [];
+        for m in moveHistory { sans.append(m["san"]); }
+        moves_str = " ".join(sans);
+
+        # Step 1 — identify the 3 critical moments
+        p1 = f"You are a chess analyst. Given these moves: {moves_str} (result: {outcome}), identify the 3 most critical moments in the game. For each, state the move number, the move played, and one sentence on why it was critical. Be concise. Format as a numbered list.";
+
+        return _gemini(p1).then(lambda(moments: str) -> Any {
+            onStep("Critical Moments", moments);
+
+            # Step 2 — for each moment, what should have been played instead
+            p2 = f"You are a chess coach. Here are 3 critical moments from a game ({moves_str}, result: {outcome}):\n{moments}\n\nFor each moment, explain in one sentence what the better move or plan would have been and why. Be specific.";
+            return _gemini(p2).then(lambda(improvements: str) -> Any {
+                onStep("Better Moves", improvements);
+
+                # Step 3 — synthesize into a coaching summary
+                p3 = f"You are a chess coach. A game just ended ({outcome}). Here are the critical moments:\n{moments}\n\nAnd the improvements:\n{improvements}\n\nWrite a 2-3 sentence coaching summary: what pattern or concept each player should study to improve. Be direct and practical.";
+                return _gemini(p3).then(lambda(summary: str) -> Any {
+                    onStep("Coaching Summary", summary);
+                    return summary;
+                });
+            });
+        });
+    }
+
     def:pub getMoveComment(san: str, fen: str) -> Any {
-        comments = [
-            f"Interesting choice with {san} — let's see how it plays out.",
-            f"{san} puts pressure on the center.",
-            f"A solid move: {san}.",
-            f"{san} — developing nicely.",
-            f"Bold! {san} opens up the position.",
-            f"{san} keeps things balanced.",
-            f"Good tempo with {san}.",
-            f"{san} — the plot thickens."
-        ];
-        idx = Math.floor(Math.random() * comments.length);
         return Reflect.construct(Promise, [lambda(resolve: Any, _reject: Any) -> None {
-            setTimeout(lambda() -> None { resolve(comments[idx]); }, 300);
+            resolve("");
         }]);
     }
 

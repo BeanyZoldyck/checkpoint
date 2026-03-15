@@ -5,6 +5,7 @@ cl import from "..ui.card" { Card, CardContent, CardHeader, CardTitle }
 cl import from "..ui.badge" { Badge }
 cl import from "..ui.alert" { Alert, AlertTitle, AlertDescription }
 cl import from "..ui.separator" { Separator }
+cl import from "..ui.dialog" { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose }
 cl import from "...lib.chess" { create_game }
 cl import from "...lib.api" {
     connectDigitalPlayer,
@@ -14,7 +15,8 @@ cl import from "...lib.api" {
     updatePlayerConnection,
     subscribeToMoves,
     resetGame,
-    getMoveComment
+    getMoveComment,
+    getGameAnalysis
 }
 
 cl {
@@ -40,7 +42,9 @@ cl {
         [isSendingMove, setIsSendingMove] = useState(False);
         [isStartingGame, setIsStartingGame] = useState(False);
         [isResetting, setIsResetting] = useState(False);
-        [agentComment, setAgentComment] = useState("");
+        [analysisSteps, setAnalysisSteps] = useState([]);
+        [analysisLoading, setAnalysisLoading] = useState(False);
+        [showAnalysis, setShowAnalysis] = useState(False);
 
         unsubRef = useRef(None);
         # Set of move IDs that this client sent — used to ignore subscription echoes
@@ -51,14 +55,25 @@ cl {
         stateRef.current = {"game": game, "moveHistory": moveHistory, "playerColor": playerColor, "sentMoveIds": sentMoveIdsRef.current};
 
         useEffect(lambda() -> None {
-            if len(moveHistory) > 0 {
-                last = moveHistory[len(moveHistory) - 1];
-                setAgentComment("...");
-                getMoveComment(last["san"], "").then(lambda(c: str) -> None {
-                    setAgentComment(c);
+            if gameStatus == "COMPLETED" and len(moveHistory) > 0 {
+                setAnalysisSteps([]);
+                setAnalysisLoading(True);
+                setShowAnalysis(True);
+                def on_step(label: str, text: str) -> None {
+                    setAnalysisSteps(lambda(prev: list) -> list {
+                        next = prev.slice(0);
+                        next.push({"label": label, "text": text});
+                        return next;
+                    });
+                }
+                getGameAnalysis(moveHistory, statusMessage, on_step).then(lambda(_: Any) -> None {
+                    setAnalysisLoading(False);
+                }).catch(lambda(err: Any) -> None {
+                    setAnalysisLoading(False);
+                    on_step("Error", "Analysis failed. Please try again.");
                 });
             }
-        }, [moveHistory]);
+        }, [gameStatus]);
 
         def refresh_position(g: Any) -> None {
             if g {
@@ -432,9 +447,24 @@ cl {
             return items;
         }
 
+        def render_analysis_steps() -> list {
+            items = [];
+            i = 0;
+            while i < len(analysisSteps) {
+                step = analysisSteps[i];
+                items.append(<div key={i} className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">{step["label"]}</p>
+                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{step["text"]}</p>
+                    {i < len(analysisSteps) - 1 and <div className="border-t border-border mt-3" />}
+                </div>);
+                i = i + 1;
+            }
+            return items;
+        }
+
         is_interactive = is_my_turn() and gameStatus == "ACTIVE" and not isSendingMove;
 
-        return <div className="flex flex-col lg:flex-row gap-6 p-4 max-w-7xl mx-auto">
+        return <><div className="flex flex-col lg:flex-row gap-6 p-4 max-w-7xl mx-auto">
             <div className="flex-1 space-y-4">
                 <Card>
                     <CardHeader className="pb-3">
@@ -484,27 +514,7 @@ cl {
                             >
                                 {"Starting..." if isStartingGame else "Start Game"}
                             </Button> if gameStatus != "ACTIVE" else <></>}
-                            <Button
-                                variant="secondary"
-                                onClick={lambda() -> None { handle_test_e4(); }}
-                                disabled={gameStatus != "ACTIVE" or isSendingMove}
-                            >
-                                Test: e4
-                            </Button>
-                            <Button
-                                variant="secondary"
-                                onClick={lambda() -> None { handle_test_e5(); }}
-                                disabled={gameStatus != "ACTIVE" or isSendingMove}
-                            >
-                                Test: e5
-                            </Button>
-                            <Button
-                                variant="secondary"
-                                onClick={lambda() -> None { handle_test_ke7(); }}
-                                disabled={gameStatus != "ACTIVE" or isSendingMove}
-                            >
-                                Test: Ke7
-                            </Button>
+
                             <Button
                                 variant="outline"
                                 onClick={handle_reset_game}
@@ -582,15 +592,34 @@ cl {
                     </CardContent>
                 </Card>
 
-                {<Card>
-                    <CardHeader>
-                        <CardTitle>Agent</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-sm italic text-muted-foreground">{agentComment}</p>
-                    </CardContent>
-                </Card> if agentComment else <></>}
+                {gameStatus == "COMPLETED" and <Button
+                    variant="default"
+                    className="w-full"
+                    onClick={lambda() -> None { setShowAnalysis(True); }}
+                >
+                    View Analysis
+                </Button>}
             </div>
-        </div>;
+        </div>
+        <Dialog open={showAnalysis} onOpenChange={lambda(o: bool) -> None { setShowAnalysis(o); }}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Game Analysis</DialogTitle>
+                    <DialogDescription>{"Analyzing your game step by step..." if analysisLoading else "Analysis complete."}</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {render_analysis_steps()}
+                    {analysisLoading and <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span className="animate-pulse">Thinking...</span>
+                    </div>}
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild={True}>
+                        <Button variant="outline">Close</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>;
     }
 }

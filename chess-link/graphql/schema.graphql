@@ -1,6 +1,5 @@
 type Game {
   id: ID!
-  joinCode: String!
   status: GameStatus!
   currentFEN: String!
   currentTurn: PlayerColor!
@@ -37,8 +36,7 @@ type GameEvent {
 }
 
 enum GameStatus {
-  WAITING_FOR_DIGITAL_PLAYER
-  WAITING_FOR_PHYSICAL_PLAYER
+  WAITING_FOR_PLAYERS
   CALIBRATING
   ACTIVE
   PAUSED
@@ -61,20 +59,19 @@ enum GameEventType {
 }
 
 type Query {
+  getCurrentGame: Game
   getGame(id: ID!): Game
-  getGameByJoinCode(joinCode: String!): Game
 }
 
 type Mutation {
-  # Create new game (physical player)
-  createGame(physicalPlayerColor: PlayerColor!): Game!
+  # Connect as physical player
+  connectPhysicalPlayer(playerColor: PlayerColor!): Game!
   
-  # Join game (digital player)
-  joinGame(joinCode: String!): Game!
+  # Connect as digital player  
+  connectDigitalPlayer: Game!
   
   # Digital player makes a move
   makeDigitalMove(
-    gameId: ID!
     from: String!
     to: String!
     promotion: String
@@ -82,7 +79,6 @@ type Mutation {
   
   # Computer vision detected a physical move
   recordPhysicalMove(
-    gameId: ID!
     from: String!
     to: String!
     piece: String!
@@ -91,26 +87,22 @@ type Mutation {
   
   # Update player connection status
   updatePlayerConnection(
-    gameId: ID!
     playerType: String!
     connected: Boolean!
   ): Game!
   
   # Upload board image for processing
   uploadBoardImage(
-    gameId: ID!
     imageData: String!
   ): String!
   
   # Complete board calibration
   completeCalibration(
-    gameId: ID!
     calibrationData: String!
   ): Game!
   
   # Register push token for notifications
   registerPushToken(
-    gameId: ID!
     playerId: ID!
     pushToken: String!
     playerColor: PlayerColor
@@ -124,15 +116,7 @@ type PushTokenResponse {
 }
 
 type Subscription {
-  # Subscribe to all events for a specific game
-  onGameEvent(gameId: ID!): GameEvent
-    @aws_subscribe(mutations: ["makeDigitalMove", "recordPhysicalMove", "updatePlayerConnection", "completeCalibration"])
-  
-  # Subscribe only to moves for a game
-  onMovesMade(gameId: ID!): Move
+  # Subscribe to the current game events
+  onGameEvent: Move
     @aws_subscribe(mutations: ["makeDigitalMove", "recordPhysicalMove"])
-  
-  # Subscribe to game state changes
-  onGameStateChanged(gameId: ID!): Game
-    @aws_subscribe(mutations: ["updatePlayerConnection", "joinGame", "completeCalibration"])
 }

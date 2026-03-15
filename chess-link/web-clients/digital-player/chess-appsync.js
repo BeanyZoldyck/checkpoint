@@ -6,6 +6,7 @@ class CheckpointAppSync {
         this.subscription = null;
         this.gameId = null;
         this.reconnectAttempts = 0;
+        this.lastMoveCount = undefined;
         this.callbacks = {
             onMove: null,
             onGameStateChange: null,
@@ -17,98 +18,69 @@ class CheckpointAppSync {
     }
     
     initializeClient() {
-        // Configure AWS SDK
-        AWS.config.update({
-            region: this.config.region,
-            accessKeyId: 'dummy',  // Using API Key auth
-            secretAccessKey: 'dummy'
-        });
+        // Simple GraphQL client configuration for AppSync
+        this.client = {
+            endpoint: this.config.graphqlEndpoint,
+            apiKey: this.config.graphqlApiKey,
+            region: this.config.region
+        };
         
-        this.client = new AWS.AppSync({
-            graphqlEndpoint: this.config.graphqlEndpoint,
-            region: this.config.region,
-            auth: {
-                type: 'API_KEY',
-                apiKey: this.config.graphqlApiKey
-            }
-        });
-        
-        console.log('AppSync client initialized');
+        console.log('AppSync GraphQL client initialized');
     }
     
-    // Subscribe to game events
-    subscribe(gameId) {
-        this.gameId = gameId;
+    // Subscribe to game events (using polling for simplicity)
+    subscribe() {
+        console.log('Setting up game state polling...');
         
-        const subscription = `
-            subscription OnGameEvent($gameId: ID!) {
-                onGameEvent(gameId: $gameId) {
-                    type
-                    gameId
-                    move {
-                        id
-                        from
-                        to
-                        san
-                        fen
-                        playerColor
-                        moveNumber
-                        timestamp
+        // Poll for game state changes every 2 seconds
+        this.subscription = setInterval(async () => {
+            try {
+                const gameData = await this.getCurrentGame();
+                if (gameData && gameData.getCurrentGame) {
+                    this.handleGameStateChange(gameData.getCurrentGame);
+                }
+            } catch (error) {
+                console.error('Error polling game state:', error);
+                // Don't spam error callbacks on polling failures
+            }
+        }, 2000);
+        
+        console.log('Game state polling started');
+    }
+    
+    // Handle game state changes from polling
+    handleGameStateChange(gameState) {
+        if (this.config.debug) {
+            console.log('Game state changed:', gameState);
+        }
+        
+        if (this.callbacks.onGameStateChange) {
+            this.callbacks.onGameStateChange(gameState);
+        }
+        
+        // Check for new moves by comparing move history
+        if (gameState.moveHistory && this.lastMoveCount !== undefined) {
+            if (gameState.moveHistory.length > this.lastMoveCount) {
+                const newMoves = gameState.moveHistory.slice(this.lastMoveCount);
+                for (const moveStr of newMoves) {
+                    // Parse move string and trigger move callback
+                    if (this.callbacks.onMove) {
+                        // Simple move parsing - in real implementation you'd parse the move properly
+                        console.log('New move detected:', moveStr);
                     }
-                    gameState {
-                        id
-                        status
-                        currentTurn
-                        currentFEN
-                        physicalPlayerConnected
-                        digitalPlayerConnected
-                        moveHistory
-                    }
-                    message
-                    timestamp
                 }
             }
-        `;
-        
-        try {
-            // Using WebSocket for AppSync subscriptions
-            const wsUrl = this.config.graphqlEndpoint
-                .replace('https://', 'wss://')
-                .replace('/graphql', '/realtime');
-            
-            // This is a simplified version - in production you'd use AWS AppSync SDK
-            this.subscription = this.subscribeToAppSync(subscription, { gameId });
-            
-            console.log('Subscribed to game events for game:', gameId);
-        } catch (error) {
-            console.error('Failed to subscribe:', error);
-            if (this.callbacks.onError) {
-                this.callbacks.onError(error);
-            }
         }
-    }
-    
-    // Simplified AppSync subscription (in real implementation, use AWS AppSync SDK)
-    subscribeToAppSync(subscription, variables) {
-        // This is a placeholder for the actual AppSync WebSocket implementation
-        // In a real app, you'd use @aws-amplify/api or aws-appsync
-        console.log('Setting up AppSync subscription with variables:', variables);
         
-        // Simulate subscription for development
-        return {
-            unsubscribe: () => {
-                console.log('Unsubscribing from AppSync');
-            }
-        };
+        this.lastMoveCount = gameState.moveHistory ? gameState.moveHistory.length : 0;
     }
     
-    // Join a game
-    async joinGame(joinCode) {
+    // Connect to single game session
+    async connectDigitalPlayer() {
         const mutation = `
-            mutation JoinGame($joinCode: String!) {
-                joinGame(joinCode: $joinCode) {
+            mutation ConnectDigitalPlayer {
+                connectDigitalPlayer {
                     id
-                    joinCode
                     status
                     digitalPlayerColor
                     physicalPlayerColor
@@ -120,14 +92,14 @@ class CheckpointAppSync {
             }
         `;
         
-        return this.executeMutation(mutation, { joinCode });
+        return this.executeMutation(mutation, {});
     }
     
-    // Make a move
-    async makeMove(gameId, from, to, promotion = null) {
+    // Make a move (single game session)
+    async makeMove(from, to, promotion = null) {
         const mutation = `
-            mutation MakeDigitalMove($gameId: ID!, $from: String!, $to: String!, $promotion: String) {
-                makeDigitalMove(gameId: $gameId, from: $from, to: $to, promotion: $promotion) {
+            mutation MakeDigitalMove($from: String!, $to: String!, $promotion: String) {
+                makeDigitalMove(from: $from, to: $to, promotion: $promotion) {
                     id
                     from
                     to
@@ -141,18 +113,17 @@ class CheckpointAppSync {
         `;
         
         return this.executeMutation(mutation, { 
-            gameId, 
             from, 
             to, 
             promotion 
         });
     }
     
-    // Update connection status
-    async updateConnection(gameId, connected) {
+    // Update connection status (single game session)
+    async updateConnection(connected) {
         const mutation = `
-            mutation UpdatePlayerConnection($gameId: ID!, $playerType: String!, $connected: Boolean!) {
-                updatePlayerConnection(gameId: $gameId, playerType: $playerType, connected: $connected) {
+            mutation UpdatePlayerConnection($playerType: String!, $connected: Boolean!) {
+                updatePlayerConnection(playerType: $playerType, connected: $connected) {
                     id
                     digitalPlayerConnected
                     physicalPlayerConnected
@@ -161,19 +132,17 @@ class CheckpointAppSync {
         `;
         
         return this.executeMutation(mutation, { 
-            gameId, 
             playerType: 'digital', 
             connected 
         });
     }
     
-    // Get game state
-    async getGame(gameId) {
+    // Get current game state (single game session)
+    async getCurrentGame() {
         const query = `
-            query GetGame($id: ID!) {
-                getGame(id: $id) {
+            query GetCurrentGame {
+                getCurrentGame {
                     id
-                    joinCode
                     status
                     currentFEN
                     currentTurn
@@ -186,7 +155,7 @@ class CheckpointAppSync {
             }
         `;
         
-        return this.executeQuery(query, { id: gameId });
+        return this.executeQuery(query, {});
     }
     
     // Execute GraphQL mutation
@@ -245,7 +214,7 @@ class CheckpointAppSync {
         }
     }
     
-    // Handle incoming subscription events
+    // Handle incoming subscription events (legacy method for compatibility)
     handleSubscriptionEvent(event) {
         if (this.config.debug) {
             console.log('Received subscription event:', event);
@@ -298,7 +267,7 @@ class CheckpointAppSync {
     // Cleanup
     disconnect() {
         if (this.subscription) {
-            this.subscription.unsubscribe();
+            clearInterval(this.subscription);
             this.subscription = null;
         }
         

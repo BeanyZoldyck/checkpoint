@@ -14,23 +14,26 @@
             <p>Play chess with someone using a physical board!</p>
         </header>
 
-        <!-- Game Join Section -->
-        <div id="joinSection" class="section active">
-            <div class="join-card">
-                <h2>Join a Game</h2>
-                <p>Enter the 6-character code from the physical player:</p>
-                <form id="joinForm">
-                    <input 
-                        type="text" 
-                        id="joinCode" 
-                        placeholder="ABC123" 
-                        maxlength="6"
-                        pattern="[A-Z0-9]{6}"
-                        required
-                        autocomplete="off"
-                    >
-                    <button type="submit">Join Game</button>
-                </form>
+        <!-- Connect to Game Section -->
+        <div id="connectSection" class="section active">
+            <div class="connect-card">
+                <h2>Digital Chess Player</h2>
+                <p>Play chess with someone using a physical board!</p>
+                <div class="connect-info">
+                    <div class="info-item">
+                        <span>📱</span>
+                        <span>Your opponent will use their phone camera to monitor a physical chess board</span>
+                    </div>
+                    <div class="info-item">
+                        <span>💻</span>
+                        <span>You'll play on this digital board interface</span>
+                    </div>
+                    <div class="info-item">
+                        <span>⚡</span>
+                        <span>Moves sync in real-time between both players</span>
+                    </div>
+                </div>
+                <button id="connectBtn" class="primary-btn">Connect to Game</button>
                 <div id="joinError" class="error hidden"></div>
             </div>
         </div>
@@ -114,7 +117,6 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
     <script src="https://unpkg.com/chess.js@0.10.3/chess.js"></script>
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1691.0.min.js"></script>
     <script src="config.js"></script>
     <script src="chess-appsync.js"></script>
     <script src="app.js"></script>

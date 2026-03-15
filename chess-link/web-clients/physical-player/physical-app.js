@@ -85,10 +85,7 @@ class CheckpointPhysicalPlayer {
             this.handleCreateGame();
         });
         
-        // Copy join code
-        document.getElementById('copyCodeBtn').addEventListener('click', () => {
-            this.copyJoinCode();
-        });
+        // Remove join code related event listeners - not needed for single game session
         
         // Camera setup
         document.getElementById('calibrateBtn').addEventListener('click', () => {
@@ -137,7 +134,7 @@ class CheckpointPhysicalPlayer {
         });
     }
     
-    // Game creation flow
+    // Game connection flow (auto-connect to single game session)
     async handleCreateGame() {
         try {
             const selectedColor = document.querySelector('input[name="playerColor"]:checked').value;
@@ -145,12 +142,11 @@ class CheckpointPhysicalPlayer {
             
             this.setLoading(true);
             
-            // Create game via AppSync
+            // Connect as physical player via AppSync
             const result = await this.appSync.executeMutation(`
-                mutation CreateGame($physicalPlayerColor: PlayerColor!) {
-                    createGame(physicalPlayerColor: $physicalPlayerColor) {
+                mutation ConnectPhysicalPlayer($playerColor: PlayerColor!) {
+                    connectPhysicalPlayer(playerColor: $playerColor) {
                         id
-                        joinCode
                         status
                         physicalPlayerColor
                         digitalPlayerColor
@@ -160,63 +156,39 @@ class CheckpointPhysicalPlayer {
                     }
                 }
             `, {
-                physicalPlayerColor: selectedColor
+                playerColor: selectedColor
             });
             
-            const game = result.createGame;
+            const game = result.connectPhysicalPlayer;
             this.gameId = game.id;
             
             // Subscribe to game events
-            this.appSync.subscribe(this.gameId);
+            this.appSync.subscribe();
             
             // Update connection status
-            await this.appSync.updateConnection(this.gameId, true);
+            await this.appSync.updateConnection(true);
             
-            // Show join code
-            this.showJoinCode(game.joinCode);
+            // Check if digital player is already connected
+            if (game.digitalPlayerConnected) {
+                // Both players connected - start calibration
+                this.startCalibration();
+            } else {
+                // Show waiting screen
+                this.showWaitingForOpponent();
+            }
             
         } catch (error) {
-            console.error('Failed to create game:', error);
+            console.error('Failed to connect to game:', error);
             this.showCreateError(error.message);
         } finally {
             this.setLoading(false);
         }
     }
     
-    showJoinCode(joinCode) {
-        document.getElementById('gameJoinCode').textContent = joinCode;
-        this.showSection('codeSection');
-    }
-    
-    copyJoinCode() {
-        const joinCode = document.getElementById('gameJoinCode').textContent;
-        
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(joinCode).then(() => {
-                this.showToast('Join code copied to clipboard!');
-            }).catch(() => {
-                this.fallbackCopyText(joinCode);
-            });
-        } else {
-            this.fallbackCopyText(joinCode);
-        }
-    }
-    
-    fallbackCopyText(text) {
-        // Fallback for older browsers
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.select();
-        
-        try {
-            document.execCommand('copy');
-            this.showToast('Join code copied!');
-        } catch (err) {
-            this.showToast('Please copy manually: ' + text);
-        }
-        
-        document.body.removeChild(textArea);
+    showWaitingForOpponent() {
+        this.showSection('waitingSection');
+        document.getElementById('waitingMessage').textContent = 
+            'Waiting for digital player to connect...';
     }
     
     // Camera setup flow
@@ -265,8 +237,8 @@ class CheckpointPhysicalPlayer {
             
             // Send calibration data to server
             const result = await this.appSync.executeMutation(`
-                mutation CompleteCalibration($gameId: ID!, $calibrationData: String!) {
-                    completeCalibration(gameId: $gameId, calibrationData: $calibrationData) {
+                mutation CompleteCalibration($calibrationData: String!) {
+                    completeCalibration(calibrationData: $calibrationData) {
                         id
                         status
                         currentFEN
@@ -274,7 +246,6 @@ class CheckpointPhysicalPlayer {
                     }
                 }
             `, {
-                gameId: this.gameId,
                 calibrationData: JSON.stringify(calibrationData)
             });
             
@@ -312,7 +283,7 @@ class CheckpointPhysicalPlayer {
         }
         
         // Start periodic capture for move detection
-        this.camera.startPeriodicCapture(this.gameId, this.appSync);
+        this.camera.startPeriodicCapture(this.appSync);
         
         console.log('Active game started');
     }
@@ -392,8 +363,13 @@ class CheckpointPhysicalPlayer {
         console.log('Game state changed:', gameState);
         
         switch (gameState.status) {
-            case 'WAITING_FOR_DIGITAL_PLAYER':
-                // Stay on code display
+            case 'WAITING_FOR_PLAYERS':
+                // Show waiting for opponent if digital player not connected
+                if (!gameState.digitalPlayerConnected) {
+                    this.showWaitingForOpponent();
+                } else {
+                    this.startCalibration();
+                }
                 break;
                 
             case 'CALIBRATING':
@@ -541,14 +517,14 @@ class CheckpointPhysicalPlayer {
     }
     
     handleVisibilityChange() {
-        if (this.gameId && this.appSync) {
-            this.appSync.updateConnection(this.gameId, !document.hidden);
+        if (this.appSync) {
+            this.appSync.updateConnection(!document.hidden);
         }
         
         if (document.hidden && this.gameActive) {
             this.camera.stopPeriodicCapture();
         } else if (!document.hidden && this.gameActive) {
-            this.camera.startPeriodicCapture(this.gameId, this.appSync);
+            this.camera.startPeriodicCapture(this.appSync);
         }
     }
     
@@ -565,8 +541,8 @@ class CheckpointPhysicalPlayer {
             this.camera.stopCamera();
         }
         
-        if (this.appSync && this.gameId) {
-            this.appSync.updateConnection(this.gameId, false);
+        if (this.appSync) {
+            this.appSync.updateConnection(false);
             this.appSync.disconnect();
         }
     }

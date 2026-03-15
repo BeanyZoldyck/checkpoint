@@ -1,6 +1,7 @@
 from aws_cdk import (
     Stack,
     Duration,
+    Expiration,
     CfnOutput,
     aws_appsync as appsync,
     aws_lambda as _lambda,
@@ -10,6 +11,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
+    aws_logs as logs,
 )
 from constructs import Construct
 
@@ -45,7 +47,7 @@ class CheckpointStack(Stack):
             partition_key=dynamodb.Attribute(
                 name="id", type=dynamodb.AttributeType.STRING
             ),
-            billing_mode=dynamodb.BillingMode.ON_DEMAND,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery=True,
             deletion_protection=False,  # For development
         )
@@ -162,17 +164,20 @@ class CheckpointStack(Stack):
             self,
             "CheckpointApi",
             name="checkpoint-api",
-            schema=appsync.SchemaFile.from_asset("../graphql/schema.graphql"),
+            definition=appsync.Definition.from_file("../graphql/schema.graphql"),
             authorization_config=appsync.AuthorizationConfig(
                 default_authorization=appsync.AuthorizationMode(
                     authorization_type=appsync.AuthorizationType.API_KEY,
-                    api_key_config=appsync.ApiKeyConfig(expires=Duration.days(365)),
+                    api_key_config=appsync.ApiKeyConfig(
+                        expires=Expiration.after(Duration.days(365))
+                    ),
                 )
             ),
             log_config=appsync.LogConfig(
-                field_log_level=appsync.FieldLogLevel.ALL, retention=Duration.days(7)
+                field_log_level=appsync.FieldLogLevel.ALL,
+                retention=logs.RetentionDays.ONE_WEEK,
             ),
-            x_ray_enabled=True,
+            xray_enabled=True,
         )
 
         # Grant AppSync permissions to invoke Lambda
@@ -301,9 +306,7 @@ class CheckpointStack(Stack):
             response_mapping_template=appsync.MappingTemplate.dynamo_db_result_item(),
         )
 
-        # Grant AppSync permission to execute Lambda
-        game_resolvers.grant_invoke(api.service_role)
-        image_processor.grant_invoke(api.service_role)
+        # Grant AppSync permission to execute Lambda - done through data sources
 
         # Update CV processor environment with AppSync endpoint
         cv_processor.add_environment("APPSYNC_ENDPOINT", api.graphql_url)

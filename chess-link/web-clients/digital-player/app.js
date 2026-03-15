@@ -6,31 +6,38 @@ class CheckpointDigitalPlayer {
         this.board = null;
         this.gameId = null;
         this.playerColor = null;
-        this.currentSection = 'joinSection';
+        this.currentSection = 'connectSection';
         
         this.initializeApp();
     }
     
     initializeApp() {
         // Check if configuration is set
-        if (!window.CheckpointConfig.isConfigured()) {
+        if (!window.CheckpointConfig || !window.CheckpointConfig.isConfigured()) {
             this.showError('Configuration not set. Please deploy the infrastructure first.');
             return;
         }
         
-        // Initialize AppSync client
-        this.appSync = new CheckpointAppSync(window.CheckpointConfig);
+        console.log('Initializing with config:', window.CheckpointConfig);
         
-        // Set up AppSync callbacks
-        this.setupAppSyncCallbacks();
-        
-        // Set up UI event handlers
-        this.setupEventHandlers();
-        
-        // Initialize chessboard
-        this.initializeChessboard();
-        
-        console.log('Checkpoint Digital Player initialized');
+        try {
+            // Initialize AppSync client
+            this.appSync = new CheckpointAppSync(window.CheckpointConfig);
+            
+            // Set up AppSync callbacks
+            this.setupAppSyncCallbacks();
+            
+            // Set up UI event handlers
+            this.setupEventHandlers();
+            
+            // Initialize chessboard
+            this.initializeChessboard();
+            
+            console.log('Checkpoint Digital Player initialized successfully');
+        } catch (error) {
+            console.error('Error initializing app:', error);
+            this.showError('Failed to initialize application: ' + error.message);
+        }
     }
     
     setupAppSyncCallbacks() {
@@ -52,16 +59,9 @@ class CheckpointDigitalPlayer {
     }
     
     setupEventHandlers() {
-        // Join form
-        document.getElementById('joinForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.handleJoinGame();
-        });
-        
-        // Join code input formatting
-        const joinCodeInput = document.getElementById('joinCode');
-        joinCodeInput.addEventListener('input', (e) => {
-            e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        // Connect button
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            this.handleConnectToGame();
         });
         
         // Board controls
@@ -81,17 +81,22 @@ class CheckpointDigitalPlayer {
         
         // Handle page visibility changes
         document.addEventListener('visibilitychange', () => {
-            if (this.gameId && this.appSync) {
-                this.appSync.updateConnection(this.gameId, !document.hidden);
+            if (this.appSync) {
+                this.appSync.updateConnection(!document.hidden);
             }
         });
         
         // Handle page unload
         window.addEventListener('beforeunload', () => {
-            if (this.gameId && this.appSync) {
-                this.appSync.updateConnection(this.gameId, false);
+            if (this.appSync) {
+                this.appSync.updateConnection(false);
             }
         });
+        
+        // Auto-connect on page load
+        setTimeout(() => {
+            this.handleConnectToGame();
+        }, 1000);
     }
     
     initializeChessboard() {
@@ -107,37 +112,42 @@ class CheckpointDigitalPlayer {
         this.board = Chessboard('board', config);
     }
     
-    // Join game flow
-    async handleJoinGame() {
-        const joinCode = document.getElementById('joinCode').value.trim();
-        
-        if (!joinCode || joinCode.length !== 6) {
-            this.showJoinError('Please enter a valid 6-character game code');
-            return;
-        }
-        
+    // Auto-connect to single game session
+    async handleConnectToGame() {
         try {
             this.setLoading(true);
             this.hideJoinError();
             
-            // Join the game
-            const result = await this.appSync.joinGame(joinCode);
-            const game = result.joinGame;
+            // Connect as digital player
+            const result = await this.appSync.executeMutation(`
+                mutation ConnectDigitalPlayer {
+                    connectDigitalPlayer {
+                        id
+                        status
+                        physicalPlayerColor
+                        digitalPlayerColor
+                        currentFEN
+                        physicalPlayerConnected
+                        digitalPlayerConnected
+                    }
+                }
+            `);
             
+            const game = result.connectDigitalPlayer;
             this.gameId = game.id;
             this.playerColor = game.digitalPlayerColor.toLowerCase();
             
             // Subscribe to game events
-            this.appSync.subscribe(this.gameId);
+            this.appSync.subscribe();
             
             // Update connection status
-            await this.appSync.updateConnection(this.gameId, true);
+            await this.appSync.updateConnection(true);
             
             // Update UI based on game status
             this.handleGameStateChange(game);
             
         } catch (error) {
-            console.error('Failed to join game:', error);
+            console.error('Failed to connect to game:', error);
             this.showJoinError(error.message);
         } finally {
             this.setLoading(false);
@@ -187,8 +197,14 @@ class CheckpointDigitalPlayer {
         
         // Handle different game statuses
         switch (gameState.status) {
-            case 'WAITING_FOR_DIGITAL_PLAYER':
-                // This shouldn't happen since we just joined
+            case 'WAITING_FOR_PLAYERS':
+                // Show waiting status
+                this.showSection('setupSection');
+                if (!gameState.physicalPlayerConnected) {
+                    this.updateSetupStatus('Waiting for physical player to connect...');
+                } else {
+                    this.updateSetupStatus('Connected! Waiting for physical player to calibrate camera...');
+                }
                 break;
                 
             case 'CALIBRATING':
@@ -363,7 +379,7 @@ class CheckpointDigitalPlayer {
         
         try {
             // Send move to server
-            await this.appSync.makeMove(this.gameId, source, target, 'q');
+            await this.appSync.makeMove(source, target, 'q');
             
             // Add to move history
             this.rebuildMoveHistory(this.chess.history());
@@ -472,15 +488,14 @@ class CheckpointDigitalPlayer {
     }
     
     setLoading(loading) {
-        const form = document.getElementById('joinForm');
-        const button = form.querySelector('button');
+        const button = document.getElementById('connectBtn');
         
         if (loading) {
             button.disabled = true;
-            button.textContent = 'Joining...';
+            button.textContent = 'Connecting...';
         } else {
             button.disabled = false;
-            button.textContent = 'Join Game';
+            button.textContent = 'Connect to Game';
         }
     }
     
@@ -498,9 +513,8 @@ class CheckpointDigitalPlayer {
             this.board.position('start');
         }
         
-        document.getElementById('joinCode').value = '';
         this.hideJoinError();
-        this.showSection('joinSection');
+        this.showSection('connectSection');
     }
     
     updateConnectionStatus(connected) {

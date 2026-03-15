@@ -37,10 +37,15 @@ if ! command -v aws &>/dev/null; then
 	exit 1
 fi
 
-# Check CDK
-if ! command -v cdk &>/dev/null; then
+# Check CDK (try global first, then local)
+if ! command -v cdk &>/dev/null && ! command -v npx &>/dev/null; then
 	print_error "AWS CDK not found. Please install: npm install -g aws-cdk"
 	exit 1
+elif ! command -v cdk &>/dev/null; then
+	# Use npx to run local CDK
+	CDK_CMD="npx cdk"
+else
+	CDK_CMD="cdk"
 fi
 
 # Check Python
@@ -102,13 +107,13 @@ if [ -z "$REGION" ]; then
 fi
 
 print_step "Bootstrapping CDK in $ACCOUNT/$REGION..."
-cdk bootstrap aws://$ACCOUNT/$REGION
+$CDK_CMD bootstrap aws://$ACCOUNT/$REGION
 
 print_success "CDK bootstrapped"
 
 # Deploy infrastructure
 print_step "Deploying Checkpoint infrastructure..."
-cdk deploy --require-approval never
+$CDK_CMD deploy --require-approval never
 
 if [ $? -ne 0 ]; then
 	print_error "CDK deployment failed"
@@ -330,7 +335,7 @@ To run the mobile app:
 3. Use Expo Go app to test
 
 To destroy the stack:
-cdk destroy
+$CDK_CMD destroy
 EOF
 
 print_success "Deployment complete! Check deployment-info.txt for details."

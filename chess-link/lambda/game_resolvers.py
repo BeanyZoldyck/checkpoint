@@ -24,9 +24,9 @@ PUSH_NOTIFICATION_FUNCTION = os.environ.get(
 games_table = dynamodb.Table(GAMES_TABLE_NAME)
 
 
-def generate_join_code() -> str:
-    """Generate a 6-character join code"""
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+def generate_game_id() -> str:
+    """Generate a consistent game ID for the single game session"""
+    return "single-game-session"
 
 
 def get_current_timestamp() -> str:
@@ -71,123 +71,169 @@ def get_player_push_tokens(game_id: str) -> Dict[str, str]:
     return {"white": "", "black": ""}
 
 
-def create_game_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
+def connect_physical_player_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
-    Create a new chess game
+    Connect physical player to the single game session
     """
     try:
         args = event["arguments"]
-        physical_player_color = args["physicalPlayerColor"]
+        physical_player_color = args["playerColor"]
 
-        # Generate unique game ID and join code
-        game_id = str(uuid.uuid4())
-        join_code = generate_join_code()
-
-        # Ensure join code is unique (small chance of collision)
-        while True:
-            existing = games_table.scan(
-                FilterExpression="joinCode = :code",
-                ExpressionAttributeValues={":code": join_code},
-            )
-            if not existing["Items"]:
-                break
-            join_code = generate_join_code()
+        # Use consistent game ID for single game session
+        game_id = generate_game_id()
 
         # Determine digital player color
         digital_player_color = "BLACK" if physical_player_color == "WHITE" else "WHITE"
 
-        # Create initial game state
-        initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        # Check if game already exists
+        response = games_table.get_item(Key={"id": game_id})
 
-        game = {
-            "id": game_id,
-            "joinCode": join_code,
-            "status": "WAITING_FOR_DIGITAL_PLAYER",
-            "currentFEN": initial_fen,
-            "currentTurn": "WHITE",
-            "physicalPlayerColor": physical_player_color,
-            "digitalPlayerColor": digital_player_color,
-            "moveHistory": [],
-            "physicalPlayerConnected": True,
-            "digitalPlayerConnected": False,
-            "lastImageS3Key": None,
-            "createdAt": get_current_timestamp(),
-            "updatedAt": get_current_timestamp(),
-        }
+        if "Item" in response:
+            # Game exists, update physical player connection
+            game = response["Item"]
+            updated_game = games_table.update_item(
+                Key={"id": game_id},
+                UpdateExpression="""
+                    SET physicalPlayerConnected = :connected,
+                        physicalPlayerColor = :physicalColor,
+                        digitalPlayerColor = :digitalColor,
+                        #status = :status,
+                        updatedAt = :updated
+                """,
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":connected": True,
+                    ":physicalColor": physical_player_color,
+                    ":digitalColor": digital_player_color,
+                    ":status": "WAITING_FOR_PLAYERS"
+                    if not game.get("digitalPlayerConnected", False)
+                    else "CALIBRATING",
+                    ":updated": get_current_timestamp(),
+                },
+                ReturnValues="ALL_NEW",
+            )
+            return updated_game["Attributes"]
+        else:
+            # Create new game
+            initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        # Save to DynamoDB
+            game = {
+                "id": game_id,
+                "status": "WAITING_FOR_PLAYERS",
+                "currentFEN": initial_fen,
+                "currentTurn": "WHITE",
+                "physicalPlayerColor": physical_player_color,
+                "digitalPlayerColor": digital_player_color,
+                "moveHistory": [],
+                "physicalPlayerConnected": True,
+                "digitalPlayerConnected": False,
+                "lastImageS3Key": None,
+                "createdAt": get_current_timestamp(),
+                "updatedAt": get_current_timestamp(),
+            }
+
+            # Save to DynamoDB
+            games_table.put_item(Item=game)
+
+            print(
+                f"Created single game session with physical player color {physical_player_color}"
+            )
+            return game
+
+    except Exception as e:
+        print(f"Error connecting physical player: {str(e)}")
+        raise Exception(f"Failed to connect physical player: {str(e)}")
+
+
+def connect_digital_player_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
+    """
+    Connect digital player to the single game session.
+    Always returns a fully-populated Game object with all required fields.
+    """
+    initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+    try:
+        game_id = generate_game_id()
+        now = get_current_timestamp()
+
+        # Fetch existing game if any
+        response = games_table.get_item(Key={"id": game_id})
+        existing = response.get("Item")
+
+        if existing:
+            # Merge: preserve physical-player fields, mark digital player connected
+            game = {
+                "id": game_id,
+                "status": "CALIBRATING"
+                if existing.get("physicalPlayerConnected")
+                else "WAITING_FOR_PLAYERS",
+                "currentFEN": existing.get("currentFEN") or initial_fen,
+                "currentTurn": existing.get("currentTurn") or "WHITE",
+                "physicalPlayerColor": existing.get("physicalPlayerColor") or "WHITE",
+                "digitalPlayerColor": existing.get("digitalPlayerColor") or "BLACK",
+                "moveHistory": existing.get("moveHistory") or [],
+                "physicalPlayerConnected": bool(
+                    existing.get("physicalPlayerConnected", False)
+                ),
+                "digitalPlayerConnected": True,
+                "lastImageS3Key": existing.get("lastImageS3Key"),
+                "createdAt": existing.get("createdAt") or now,
+                "updatedAt": now,
+            }
+        else:
+            game = {
+                "id": game_id,
+                "status": "WAITING_FOR_PLAYERS",
+                "currentFEN": initial_fen,
+                "currentTurn": "WHITE",
+                "physicalPlayerColor": "WHITE",
+                "digitalPlayerColor": "BLACK",
+                "moveHistory": [],
+                "physicalPlayerConnected": False,
+                "digitalPlayerConnected": True,
+                "lastImageS3Key": None,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+
+        # Write complete record back (handles both create and repair cases)
         games_table.put_item(Item=game)
 
-        print(f"Created game {game_id} with join code {join_code}")
+        # Notify physical player if already connected
+        if game["physicalPlayerConnected"]:
+            push_tokens = get_player_push_tokens(game_id)
+            token = push_tokens.get(game["physicalPlayerColor"].lower(), "")
+            if token:
+                send_push_notification(
+                    {
+                        "type": "game_start",
+                        "game_id": game_id,
+                        "expo_token": token,
+                        "opponent_name": "Digital Player",
+                    }
+                )
+
+        print(f"Digital player connected to game {game_id}, status={game['status']}")
         return game
 
     except Exception as e:
-        print(f"Error creating game: {str(e)}")
-        raise Exception(f"Failed to create game: {str(e)}")
+        print(f"Error connecting digital player: {str(e)}")
+        raise Exception(f"Failed to connect digital player: {str(e)}")
 
 
-def join_game_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
+def get_current_game_resolver(
+    event: Dict[str, Any], context
+) -> Optional[Dict[str, Any]]:
     """
-    Digital player joins a game using join code
+    Get the current single game session
     """
     try:
-        args = event["arguments"]
-        join_code = args["joinCode"].upper()
-
-        # Find game by join code
-        response = games_table.scan(
-            FilterExpression="joinCode = :code",
-            ExpressionAttributeValues={":code": join_code},
-        )
-
-        if not response["Items"]:
-            raise Exception(f"Game not found with code: {join_code}")
-
-        game = response["Items"][0]
-
-        # Check if game is in correct state
-        if game["status"] != "WAITING_FOR_DIGITAL_PLAYER":
-            raise Exception(
-                f"Game is not available for joining. Status: {game['status']}"
-            )
-
-        # Update game state
-        updated_game = games_table.update_item(
-            Key={"id": game["id"]},
-            UpdateExpression="""
-                SET digitalPlayerConnected = :connected,
-                    #status = :status,
-                    updatedAt = :updated
-            """,
-            ExpressionAttributeNames={"#status": "status"},
-            ExpressionAttributeValues={
-                ":connected": True,
-                ":status": "CALIBRATING",
-                ":updated": get_current_timestamp(),
-            },
-            ReturnValues="ALL_NEW",
-        )
-
-        # Send game start notification to physical player
-        push_tokens = get_player_push_tokens(game["id"])
-        physical_player_color = game["physicalPlayerColor"].lower()
-        physical_player_token = push_tokens.get(physical_player_color, "")
-
-        if physical_player_token:
-            notification_data = {
-                "type": "game_start",
-                "game_id": game["id"],
-                "expo_token": physical_player_token,
-                "opponent_name": "Digital Player",
-            }
-            send_push_notification(notification_data)
-
-        print(f"Digital player joined game {game['id']}")
-        return updated_game["Attributes"]
-
+        game_id = generate_game_id()
+        response = games_table.get_item(Key={"id": game_id})
+        return response.get("Item")
     except Exception as e:
-        print(f"Error joining game: {str(e)}")
-        raise Exception(f"Failed to join game: {str(e)}")
+        print(f"Error getting current game: {str(e)}")
+        return None
 
 
 def make_digital_move_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
@@ -196,7 +242,7 @@ def make_digital_move_resolver(event: Dict[str, Any], context) -> Dict[str, Any]
     """
     try:
         args = event["arguments"]
-        game_id = args["gameId"]
+        game_id = generate_game_id()  # Use single game session
         from_square = args["from"]
         to_square = args["to"]
         promotion = args.get("promotion")
@@ -283,7 +329,7 @@ def record_physical_move_resolver(event: Dict[str, Any], context) -> Dict[str, A
     """
     try:
         args = event["arguments"]
-        game_id = args["gameId"]
+        game_id = generate_game_id()  # Use single game session
         from_square = args["from"]
         to_square = args["to"]
         piece = args["piece"]
@@ -369,7 +415,7 @@ def update_player_connection_resolver(event: Dict[str, Any], context) -> Dict[st
     """
     try:
         args = event["arguments"]
-        game_id = args["gameId"]
+        game_id = generate_game_id()  # Use single game session
         player_type = args["playerType"]
         connected = args["connected"]
 
@@ -407,7 +453,7 @@ def complete_calibration_resolver(event: Dict[str, Any], context) -> Dict[str, A
     """
     try:
         args = event["arguments"]
-        game_id = args["gameId"]
+        game_id = generate_game_id()  # Use single game session
         calibration_data = args["calibrationData"]
 
         # Update game to active status
@@ -448,27 +494,7 @@ def get_game_resolver(event: Dict[str, Any], context) -> Optional[Dict[str, Any]
         return None
 
 
-def get_game_by_join_code_resolver(
-    event: Dict[str, Any], context
-) -> Optional[Dict[str, Any]]:
-    """
-    Get game by join code
-    """
-    try:
-        join_code = event["arguments"]["joinCode"].upper()
-
-        response = games_table.scan(
-            FilterExpression="joinCode = :code",
-            ExpressionAttributeValues={":code": join_code},
-        )
-
-        if response["Items"]:
-            return response["Items"][0]
-        return None
-
-    except Exception as e:
-        print(f"Error getting game by join code: {str(e)}")
-        return None
+# Removed get_game_by_join_code_resolver - not needed for single game session
 
 
 def register_push_token_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
@@ -477,10 +503,10 @@ def register_push_token_resolver(event: Dict[str, Any], context) -> Dict[str, An
     """
     try:
         args = event["arguments"]
-        game_id = args["gameId"]
         player_id = args["playerId"]
         push_token = args["pushToken"]
         player_color = args.get("playerColor", "").lower()
+        game_id = generate_game_id()  # Use single game session
 
         # Validate push token format
         if not push_token or not push_token.startswith("ExponentPushToken["):
@@ -505,3 +531,73 @@ def register_push_token_resolver(event: Dict[str, Any], context) -> Dict[str, An
     except Exception as e:
         print(f"Error registering push token: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Dispatcher handler — single entry point for all AppSync resolvers
+# ---------------------------------------------------------------------------
+
+RESOLVER_MAP = {
+    "connectPhysicalPlayer": connect_physical_player_resolver,
+    "connectDigitalPlayer": connect_digital_player_resolver,
+    "getCurrentGame": get_current_game_resolver,
+    "getGame": get_game_resolver,
+    "makeDigitalMove": make_digital_move_resolver,
+    "recordPhysicalMove": record_physical_move_resolver,
+    "updatePlayerConnection": update_player_connection_resolver,
+    "completeCalibration": complete_calibration_resolver,
+    "registerPushToken": register_push_token_resolver,
+}
+
+
+def handler(event, context):
+    """
+    Single dispatcher entry point for all AppSync Lambda resolvers.
+    AppSync passes the full context; we route by field name.
+    """
+    field = event.get("info", {}).get("fieldName") or event.get("fieldName", "")
+    print(f"Dispatching resolver for field: {field}")
+
+    resolver_fn = RESOLVER_MAP.get(field)
+    if resolver_fn:
+        return resolver_fn(event, context)
+
+    raise Exception(f"Unknown resolver field: {field}")
+
+
+# Legacy per-field entry points kept for backwards compatibility
+# (AppSync data sources were originally configured to call these directly)
+def create_game_resolver(event, context):
+    return connect_digital_player_resolver(event, context)
+
+
+def connect_digital_player(event, context):
+    return connect_digital_player_resolver(event, context)
+
+
+def connect_physical_player(event, context):
+    return connect_physical_player_resolver(event, context)
+
+
+def make_digital_move(event, context):
+    return make_digital_move_resolver(event, context)
+
+
+def record_physical_move(event, context):
+    return record_physical_move_resolver(event, context)
+
+
+def update_player_connection(event, context):
+    return update_player_connection_resolver(event, context)
+
+
+def complete_calibration(event, context):
+    return complete_calibration_resolver(event, context)
+
+
+def get_current_game(event, context):
+    return get_current_game_resolver(event, context)
+
+
+def register_push_token(event, context):
+    return register_push_token_resolver(event, context)

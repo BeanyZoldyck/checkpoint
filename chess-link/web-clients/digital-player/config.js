@@ -1,26 +1,14 @@
 // Configuration for Checkpoint Digital Player
-// These values will be updated after CDK deployment
-
 window.CheckpointConfig = {
-    // AppSync GraphQL API Configuration
-    graphqlEndpoint: 'YOUR_APPSYNC_GRAPHQL_ENDPOINT',
-    graphqlApiKey: 'YOUR_APPSYNC_API_KEY',
-    
-    // AWS Region
-    region: 'us-east-1',
-    
-    // Application settings
+    graphqlEndpoint: 'https://wltticbi65fl5kmnpsenbj26ky.appsync-api.us-east-2.amazonaws.com/graphql',
+    graphqlApiKey: 'da2-idf5umd5m5hu3cui4hyi526dee',
+    region: 'us-east-2',
     reconnectAttempts: 5,
-    reconnectDelay: 2000, // milliseconds
-    
-    // Chessboard configuration
+    reconnectDelay: 2000,
     pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
-    
-    // Debug mode
-    debug: true
+    debug: false
 };
 
-// Helper function to check if config is properly set
 window.CheckpointConfig.isConfigured = function() {
     return this.graphqlEndpoint !== 'YOUR_APPSYNC_GRAPHQL_ENDPOINT' &&
            this.graphqlApiKey !== 'YOUR_APPSYNC_API_KEY';

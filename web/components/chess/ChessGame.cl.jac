@@ -10,6 +10,7 @@ cl import from "...lib.api" {
     connectDigitalPlayer,
     completeCalibration,
     makeDigitalMove,
+    recordPhysicalMove,
     updatePlayerConnection,
     subscribeToMoves,
     resetGame
@@ -166,6 +167,45 @@ cl {
                 errMsg = (err.message if err and err.message else String(err));
                 setStatusMessage(f"Failed: {errMsg}");
             });
+        }
+
+        def handle_test_physical_move(from_sq: str, to_sq: str, piece: str, label: str) -> None {
+            if not game { return; }
+            if isSendingMove { return; }
+            result = game.make_move({"from": from_sq, "to": to_sq, "promotion": "q"});
+            if not result["success"] {
+                setStatusMessage(f"{label} not available (already played or illegal).");
+                return;
+            }
+            refresh_position(game);
+            setLastMove({"from": from_sq, "to": to_sq});
+            newHistory = moveHistory.slice(0);
+            newHistory.push({"san": result["san"], "color": "black"});
+            setMoveHistory(newHistory);
+            opp_turn = "white" if currentTurn == "black" else "black";
+            setCurrentTurn(opp_turn);
+            setStatusMessage("Waiting for opponent's move...");
+            setIsSendingMove(True);
+            recordPhysicalMove(from_sq, to_sq, piece).then(lambda(r: Any) -> None {
+                setIsSendingMove(False);
+            }).catch(lambda(err: Any) -> None {
+                setIsSendingMove(False);
+                console.error(f"{label} failed:", err);
+                game.undo_move();
+                refresh_position(game);
+                setMoveHistory(newHistory.slice(0, -1));
+                setCurrentTurn(currentTurn);
+                errMsg = (err.message if err and err.message else String(err));
+                setStatusMessage(f"Failed: {errMsg}");
+            });
+        }
+
+        def handle_test_e5() -> None {
+            handle_test_physical_move("e7", "e5", "p", "e5");
+        }
+
+        def handle_test_ke7() -> None {
+            handle_test_physical_move("e8", "e7", "k", "Ke7");
         }
 
         def handle_move(move: dict) -> None {
@@ -420,6 +460,20 @@ cl {
                                 disabled={gameStatus != "ACTIVE" or isSendingMove}
                             >
                                 Test: e4
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={lambda() -> None { handle_test_e5(); }}
+                                disabled={gameStatus != "ACTIVE" or isSendingMove}
+                            >
+                                Test: e5
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                onClick={lambda() -> None { handle_test_ke7(); }}
+                                disabled={gameStatus != "ACTIVE" or isSendingMove}
+                            >
+                                Test: Ke7
                             </Button>
                             <Button
                                 variant="outline"

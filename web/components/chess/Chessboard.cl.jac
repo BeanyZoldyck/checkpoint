@@ -41,9 +41,9 @@ cl {
             rank_index = int(rank) - 1;
             
             if (file_index + rank_index) % 2 == 0 {
-                return "bg-amber-100 dark:bg-amber-200";  # Light squares
-            } else {
                 return "bg-amber-800 dark:bg-amber-900";  # Dark squares
+            } else {
+                return "bg-amber-100 dark:bg-amber-200";  # Light squares
             }
         }
 
@@ -121,7 +121,7 @@ cl {
             return <>
                 <div className="flex absolute bottom-0 left-0 w-full">
                     {files().map(lambda(file: str, index: int) -> JsxElement {
-                        file_color = "#92400e" if square_color(file, "1") == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
+                        file_color = "#fbbf24" if square_color(file, "1") == "bg-amber-100 dark:bg-amber-200" else "#92400e";
                         return <div 
                             key={file}
                             className="flex items-end justify-end text-xs font-medium pr-1 pb-1"
@@ -137,7 +137,7 @@ cl {
                 </div>
                 <div className="flex flex-col absolute top-0 left-0 h-full">
                     {ranks().map(lambda(rank: str, index: int) -> JsxElement {
-                        rank_color = "#92400e" if square_color("a", rank) == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
+                        rank_color = "#fbbf24" if square_color("a", rank) == "bg-amber-100 dark:bg-amber-200" else "#92400e";
                         return <div 
                             key={rank}
                             className="flex items-start justify-start text-xs font-medium pl-1 pt-1"

@@ -62,6 +62,13 @@ cl {
         return _gql(q).then(lambda(d: Any) -> Any { return d["resetGame"]; });
     }
 
+    def:pub recordPhysicalMove(from_sq: str, to_sq: str, piece: str = "p") -> Any {
+        q = "mutation RecordPhysicalMove($from: String!, $to: String!, $piece: String!, $fen: String!) { recordPhysicalMove(from: $from, to: $to, piece: $piece, fen: $fen) { id gameId from to piece san fen playerColor moveNumber timestamp } }";
+        return _gql(q, {"from": from_sq, "to": to_sq, "piece": piece, "fen": ""}).then(
+            lambda(d: Any) -> Any { return d["recordPhysicalMove"]; }
+        );
+    }
+
     def:pub updatePlayerConnection(connected: bool) -> Any {
         q = "mutation UpdatePlayerConnection($playerType: String!, $connected: Boolean!) { updatePlayerConnection(playerType: $playerType, connected: $connected) { id digitalPlayerConnected physicalPlayerConnected } }";
         return _gql(q, {"playerType": "digital", "connected": connected}).catch(

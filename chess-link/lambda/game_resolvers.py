@@ -269,12 +269,8 @@ def make_digital_move_resolver(event: Dict[str, Any], context) -> Dict[str, Any]
         if game["status"] != "ACTIVE":
             raise Exception(f"Game is not active. Status: {game['status']}")
 
-        # Validate it's the digital player's turn
+        # No turn validation — accept moves from the digital player at any time.
         board = chess.Board(game["currentFEN"])
-        current_color = "WHITE" if board.turn else "BLACK"
-
-        if current_color != game["digitalPlayerColor"]:
-            raise Exception("Not your turn!")
 
         # Create and validate the move
         move_uci = from_square + to_square + (promotion or "")
@@ -509,8 +505,8 @@ def reset_game_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
             "status": "ACTIVE",
             "currentFEN": initial_fen,
             "currentTurn": "WHITE",
-            "physicalPlayerColor": existing.get("physicalPlayerColor", "WHITE"),
-            "digitalPlayerColor": existing.get("digitalPlayerColor", "BLACK"),
+            "physicalPlayerColor": existing.get("physicalPlayerColor", "BLACK"),
+            "digitalPlayerColor": existing.get("digitalPlayerColor", "WHITE"),
             "moveHistory": [],
             "physicalPlayerConnected": bool(
                 existing.get("physicalPlayerConnected", False)

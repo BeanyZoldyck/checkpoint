@@ -57,9 +57,9 @@ export default function MoveScreen() {
 
     // Register as the physical player so the backend creates/joins the game
     // session and the digital player (web) can connect and make moves.
-    // Physical player always plays WHITE by convention; the web assigns itself
-    // the opposite color automatically via connectDigitalPlayer.
-    connectPhysicalPlayer('WHITE').then((game) => {
+    // Physical player is always BLACK; the digital (web) player is WHITE and
+    // makes the first move. The backend ignores the color argument below.
+    connectPhysicalPlayer('BLACK').then((game) => {
       if (!game) {
         console.warn('[checkpoint] connectPhysicalPlayer returned null');
         return;

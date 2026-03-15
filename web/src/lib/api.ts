@@ -1,219 +1,241 @@
 // ============================================================================
-// Checkpoint API Service with AWS AppSync Integration for Web Application
+// Checkpoint API Service — AWS AppSync
 //
-// Connects to AWS AppSync for real-time chess gameplay
+// Schema: chess-link/graphql/schema.graphql
+//
+// Operations used by the Jac web (digital player) app:
+//   Mutation  connectDigitalPlayer: Game!
+//   Mutation  makeDigitalMove(from, to, promotion?): Move!
+//   Mutation  updatePlayerConnection(playerType, connected): Game!
+//   Query     getCurrentGame: Game
+//   Sub       onGameEvent: Move  (fires on makeDigitalMove | recordPhysicalMove)
 // ============================================================================
 
 import { Amplify } from 'aws-amplify';
 import { generateClient } from 'aws-amplify/api';
 import { getAppSyncConfig } from './config';
 
-// AppSync configuration - will be set dynamically
-let appSyncConfig: any = {};
+// ---------------------------------------------------------------------------
+// Bootstrap — configure once at module load time
+// ---------------------------------------------------------------------------
 
-// Configure AWS AppSync
-export function configureAWS(config?: any) {
-  appSyncConfig = config || getAppSyncConfig();
-  
-  Amplify.configure({
-    API: {
-      GraphQL: {
-        endpoint: appSyncConfig.aws_appsync_graphqlEndpoint,
-        region: appSyncConfig.aws_appsync_region,
-        defaultAuthMode: 'apiKey',
-        apiKey: appSyncConfig.aws_appsync_apiKey,
-      }
-    }
-  });
-}
+const cfg = getAppSyncConfig();
+
+Amplify.configure({
+  API: {
+    GraphQL: {
+      endpoint: cfg.aws_appsync_graphqlEndpoint,
+      region: cfg.aws_appsync_region,
+      defaultAuthMode: 'apiKey',
+      apiKey: cfg.aws_appsync_apiKey,
+    },
+  },
+});
 
 const client = generateClient();
 
-const STUB_MODE = !appSyncConfig.aws_appsync_graphqlEndpoint || appSyncConfig.aws_appsync_graphqlEndpoint.includes('your-appsync-endpoint');
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-// --- Types ---
-
-export interface ChessMove {
-  from: string; // e.g. 'e2'
-  to: string;   // e.g. 'e4'
-  san: string;  // e.g. 'e4', 'Nf3'
-}
-
-export interface ResetBoardResponse {
-  success: boolean;
-  gameId: string;
-  message?: string;
-  error?: string;
-}
-
-export type ResetType = 'FULL_RESET' | 'CLEAR_BOARD' | 'UNDO_LAST_MOVE';
-
-export interface GameState {
-  gameId: string;
-  joinCode?: string;
-  status: 'waiting' | 'active' | 'finished';
-  currentTurn: 'white' | 'black';
-  state: string; // FEN notation
-  lastMove?: ChessMove;
-  winner?: 'white' | 'black' | 'draw';
+export interface Game {
+  id: string;
+  status: string;
+  currentFEN: string;
+  currentTurn: 'WHITE' | 'BLACK';
+  physicalPlayerColor: 'WHITE' | 'BLACK';
+  digitalPlayerColor: 'WHITE' | 'BLACK';
+  moveHistory: string[];
+  physicalPlayerConnected: boolean;
+  digitalPlayerConnected: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-// --- GraphQL Operations ---
+export interface GameMove {
+  id: string;
+  gameId: string;
+  from: string;
+  to: string;
+  piece: string;
+  san: string;
+  fen: string;
+  playerColor: 'WHITE' | 'BLACK';
+  moveNumber: number;
+  timestamp: string;
+}
 
-const RESET_BOARD_MUTATION = `
-  mutation ResetBoard($input: ResetBoardInput!) {
-    resetBoard(input: $input) {
-      success
-      gameId
-      message
-      error
-    }
-  }
-`;
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
 
-const RESET_SUBSCRIPTION = `
-  subscription OnBoardReset($gameId: ID!) {
-    onBoardReset(gameId: $gameId) {
-      success
-      gameId
-      message
-      error
-    }
-  }
-`;
-
-const GET_GAME_QUERY = `
-  query GetGame($gameId: ID!) {
-    getGame(gameId: $gameId) {
-      gameId
-      joinCode
+const CONNECT_DIGITAL_PLAYER = /* GraphQL */ `
+  mutation ConnectDigitalPlayer {
+    connectDigitalPlayer {
+      id
       status
+      currentFEN
       currentTurn
-      state
-      lastMove {
-        from
-        to
-        san
-      }
-      winner
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
       createdAt
       updatedAt
     }
   }
 `;
 
-// --- API Functions ---
-
-export async function resetBoard(
-  gameId: string, 
-  playerId: string, 
-  resetType: ResetType = 'FULL_RESET'
-): Promise<ResetBoardResponse> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would reset board:', { gameId, playerId, resetType });
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-    return {
-      success: true,
-      gameId,
-      message: `Board reset with type: ${resetType}`
-    };
-  }
-
+export async function connectDigitalPlayer(): Promise<Game | null> {
   try {
-    const result = await client.graphql({
-      query: RESET_BOARD_MUTATION,
-      variables: {
-        input: {
-          gameId,
-          playerId,
-          resetType
-        }
-      }
-    });
-
-    return result.data.resetBoard;
-  } catch (error) {
-    console.error('Error resetting board:', error);
-    return {
-      success: false,
-      gameId,
-      error: 'Failed to reset board'
-    };
-  }
-}
-
-export function subscribeToResetEvents(
-  gameId: string,
-  onReset: (resetData: ResetBoardResponse) => void,
-  onStatusChange?: (status: 'connected' | 'disconnected') => void,
-): () => void {
-  if (STUB_MODE) {
-    console.log('[STUB] Would subscribe to reset events for game:', gameId);
-    onStatusChange?.('connected');
-    
-    return () => {
-      onStatusChange?.('disconnected');
-    };
-  }
-
-  try {
-    onStatusChange?.('connected');
-    
-    const subscription = client.graphql({
-      query: RESET_SUBSCRIPTION,
-      variables: { gameId }
-    }).subscribe({
-      next: (data: any) => {
-        const resetData = data.data?.onBoardReset;
-        if (resetData) {
-          onReset(resetData);
-        }
-      },
-      error: (error) => {
-        console.error('Reset subscription error:', error);
-        onStatusChange?.('disconnected');
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      onStatusChange?.('disconnected');
-    };
-  } catch (error) {
-    console.error('Error setting up reset subscription:', error);
-    onStatusChange?.('disconnected');
-    return () => {};
-  }
-}
-
-export async function getGameState(gameId: string): Promise<GameState | null> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would get game state for:', gameId);
-    return {
-      gameId,
-      status: 'active',
-      currentTurn: 'white',
-      state: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-  }
-
-  try {
-    const result = await client.graphql({
-      query: GET_GAME_QUERY,
-      variables: { gameId }
-    });
-
-    return result.data.getGame;
-  } catch (error) {
-    console.error('Error getting game state:', error);
+    const result = await (client.graphql({ query: CONNECT_DIGITAL_PLAYER }) as any);
+    return result.data?.connectDigitalPlayer ?? null;
+  } catch (err) {
+    console.error('connectDigitalPlayer error:', err);
     return null;
   }
 }
 
-// Initialize AWS configuration when module loads
-configureAWS();
+// ---------------------------------------------------------------------------
+
+const MAKE_DIGITAL_MOVE = /* GraphQL */ `
+  mutation MakeDigitalMove($from: String!, $to: String!, $promotion: String) {
+    makeDigitalMove(from: $from, to: $to, promotion: $promotion) {
+      id
+      gameId
+      from
+      to
+      piece
+      san
+      fen
+      playerColor
+      moveNumber
+      timestamp
+    }
+  }
+`;
+
+export async function makeDigitalMove(
+  from: string,
+  to: string,
+  promotion?: string,
+): Promise<GameMove | null> {
+  try {
+    const result = await (client.graphql({
+      query: MAKE_DIGITAL_MOVE,
+      variables: { from, to, promotion: promotion ?? null },
+    }) as any);
+    return result.data?.makeDigitalMove ?? null;
+  } catch (err) {
+    console.error('makeDigitalMove error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+const UPDATE_PLAYER_CONNECTION = /* GraphQL */ `
+  mutation UpdatePlayerConnection($playerType: String!, $connected: Boolean!) {
+    updatePlayerConnection(playerType: $playerType, connected: $connected) {
+      id
+      digitalPlayerConnected
+      physicalPlayerConnected
+    }
+  }
+`;
+
+export async function updatePlayerConnection(connected: boolean): Promise<void> {
+  try {
+    await (client.graphql({
+      query: UPDATE_PLAYER_CONNECTION,
+      variables: { playerType: 'digital', connected },
+    }) as any);
+  } catch (err) {
+    console.error('updatePlayerConnection error:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------
+
+const GET_CURRENT_GAME = /* GraphQL */ `
+  query GetCurrentGame {
+    getCurrentGame {
+      id
+      status
+      currentFEN
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export async function getCurrentGame(): Promise<Game | null> {
+  try {
+    const result = await (client.graphql({ query: GET_CURRENT_GAME }) as any);
+    return result.data?.getCurrentGame ?? null;
+  } catch (err) {
+    console.error('getCurrentGame error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Subscription
+// ---------------------------------------------------------------------------
+
+const ON_GAME_EVENT = /* GraphQL */ `
+  subscription OnGameEvent {
+    onGameEvent {
+      id
+      gameId
+      from
+      to
+      piece
+      san
+      fen
+      playerColor
+      moveNumber
+      timestamp
+    }
+  }
+`;
+
+export function subscribeToMoves(
+  onMove: (move: GameMove) => void,
+  onStatusChange?: (status: 'connected' | 'disconnected') => void,
+): () => void {
+  try {
+    onStatusChange?.('connected');
+
+    const sub = (client.graphql({ query: ON_GAME_EVENT }) as any).subscribe({
+      next: (data: any) => {
+        const move: GameMove = data?.data?.onGameEvent;
+        if (move?.from && move?.to) {
+          onMove(move);
+        }
+      },
+      error: (err: any) => {
+        console.error('subscribeToMoves error:', err);
+        onStatusChange?.('disconnected');
+      },
+    });
+
+    return () => {
+      sub.unsubscribe();
+      onStatusChange?.('disconnected');
+    };
+  } catch (err) {
+    console.error('Error setting up subscribeToMoves:', err);
+    onStatusChange?.('disconnected');
+    return () => {};
+  }
+}

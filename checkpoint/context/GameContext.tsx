@@ -7,10 +7,15 @@
 // Stored state
 // ------------
 //   playerColor   'white' | 'black' | null  — chosen on the color-select screen
-//   corners       BoardCorners | null        — detected by Lambda on lock-on
-//   imageWidth    number                     — photo width Lambda processed
-//   imageHeight   number                     — photo height Lambda processed
+//   corners       BoardCorners | null        — derived from captured photo on lock-on
+//   imageWidth    number                     — width of the photo used during lock-on
+//   imageHeight   number                     — height of the photo used during lock-on
 //   gamePhase     GamePhase                  — drives which screen to show
+//
+// Side effects
+// ------------
+//   setPlayerColor  → calls connectPhysicalPlayer on AppSync to register with
+//                     the backend, then transitions to 'lock-on'.
 // ============================================================================
 
 import React, {
@@ -20,7 +25,9 @@ import React, {
   useState,
 } from 'react';
 
+import { configureAWS, connectPhysicalPlayer } from '@/services/api';
 import type { BoardCorners } from '@/services/chessCoords';
+import { getAppSyncConfig } from '@/services/config';
 
 export type GamePhase = 'color-select' | 'lock-on' | 'game';
 
@@ -30,17 +37,15 @@ interface GameState {
   imageWidth: number;
   imageHeight: number;
   gamePhase: GamePhase;
+  connecting: boolean;
+  connectError: string | null;
 }
 
 interface GameContextValue extends GameState {
-  /** Called from ColorSelectScreen */
+  /** Called from ColorSelectScreen — registers with backend then goes to lock-on */
   setPlayerColor: (color: 'white' | 'black') => void;
-  /** Called from BoardLockScreen on successful Lambda response */
-  setLockedBoard: (
-    corners: BoardCorners,
-    imageWidth: number,
-    imageHeight: number,
-  ) => void;
+  /** Called from BoardLockScreen after successful lock-on */
+  setLockedBoard: (corners: BoardCorners, imageWidth: number, imageHeight: number) => void;
   /** Called from GameScreen's "Re-lock" button */
   resetLock: () => void;
 }
@@ -54,14 +59,34 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     imageWidth: 0,
     imageHeight: 0,
     gamePhase: 'color-select',
+    connecting: false,
+    connectError: null,
   });
 
   const setPlayerColor = useCallback((color: 'white' | 'black') => {
+    // Optimistically advance to lock-on screen immediately, then connect in background.
+    // If connection fails we still allow proceeding — the game will work in STUB_MODE
+    // and the backend will handle reconnection on the next mutation.
     setState(prev => ({
       ...prev,
       playerColor: color,
       gamePhase: 'lock-on',
+      connecting: true,
+      connectError: null,
     }));
+
+    // Fire-and-forget: register with AppSync backend
+    const appsyncColor = color === 'white' ? 'WHITE' : 'BLACK';
+    configureAWS(getAppSyncConfig());
+    connectPhysicalPlayer(appsyncColor)
+      .then(game => {
+        console.log('[GameContext] connectPhysicalPlayer success, gameId:', game?.id);
+        setState(prev => ({ ...prev, connecting: false }));
+      })
+      .catch(err => {
+        console.warn('[GameContext] connectPhysicalPlayer failed (non-fatal):', err);
+        setState(prev => ({ ...prev, connecting: false, connectError: String(err) }));
+      });
   }, []);
 
   const setLockedBoard = useCallback(

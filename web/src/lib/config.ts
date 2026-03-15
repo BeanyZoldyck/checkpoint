@@ -11,12 +11,12 @@ export interface AppSyncConfig {
   aws_appsync_apiKey: string;
 }
 
-// This will be populated by the deployment script
+// Configuration populated by deployment script
 export const DEFAULT_CONFIG: AppSyncConfig = {
-  aws_appsync_graphqlEndpoint: 'https://your-appsync-endpoint.appsync-api.region.amazonaws.com/graphql',
-  aws_appsync_region: 'us-east-1',
+  aws_appsync_graphqlEndpoint: 'https://wltticbi65fl5kmnpsenbj26ky.appsync-api.us-east-2.amazonaws.com/graphql',
+  aws_appsync_region: 'us-east-2',
   aws_appsync_authenticationType: 'API_KEY',
-  aws_appsync_apiKey: 'your-api-key-here'
+  aws_appsync_apiKey: 'da2-idf5umd5m5hu3cui4hyi526dee',
 };
 
 // Function to load config from environment or use defaults

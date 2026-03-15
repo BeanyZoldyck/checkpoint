@@ -112,7 +112,9 @@ export function ChessboardRecognition() {
       {/* Last detected move */}
       {lastDetected && (
         <MoveArrowOverlay
-          move={lastDetected}
+          fromPixel={null}
+          toPixel={null}
+          moveLabel={`${lastDetected.from} → ${lastDetected.to}`}
           width={SCREEN_WIDTH}
           height={SCREEN_HEIGHT}
         />

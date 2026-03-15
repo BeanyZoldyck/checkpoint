@@ -21,47 +21,45 @@ games_table = dynamodb.Table(GAMES_TABLE_NAME)
 
 def upload_board_image_resolver(event: Dict[str, Any], context) -> str:
     """
-    Handle board image upload for computer vision processing
+    Returns a pre-signed S3 PUT URL so the mobile app can upload the board
+    image directly to S3 without routing large binary data through AppSync.
+
+    The mobile app should:
+      1. Call this mutation to get a pre-signed URL + S3 key (returned as JSON).
+      2. HTTP PUT the JPEG directly to the pre-signed URL.
+      3. Call completeCalibration(calibrationData: <s3_key>) to finalise.
+
+    The imageData argument is accepted for backward compatibility but ignored
+    (sending multi-MB base64 through AppSync exceeds its 1 MB request limit).
     """
     try:
-        args = event["arguments"]
-        game_id = args["gameId"]
-        image_data_base64 = args["imageData"]
+        # Use the single shared game session — no gameId in the schema args
+        game_id = "single-game-session"
 
-        # Decode base64 image
-        image_data = base64.b64decode(image_data_base64)
-
-        # Generate S3 key
+        # Generate an S3 key for this upload
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         s3_key = f"games/{game_id}/images/{timestamp}_{uuid.uuid4().hex[:8]}.jpg"
 
-        # Upload to S3
-        s3.put_object(
-            Bucket=IMAGES_BUCKET, Key=s3_key, Body=image_data, ContentType="image/jpeg"
-        )
-
-        # Update game with latest image
-        games_table.update_item(
-            Key={"id": game_id},
-            UpdateExpression="SET lastImageS3Key = :key, updatedAt = :updated",
-            ExpressionAttributeValues={
-                ":key": s3_key,
-                ":updated": datetime.now(timezone.utc).isoformat(),
+        # Generate a pre-signed PUT URL valid for 5 minutes
+        presigned_url = s3.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": IMAGES_BUCKET,
+                "Key": s3_key,
+                "ContentType": "image/jpeg",
             },
+            ExpiresIn=300,
         )
 
-        # TODO: Trigger computer vision processing
-        # For now, return the S3 key
-        print(f"Uploaded image for game {game_id}: {s3_key}")
+        print(f"Generated pre-signed URL for game {game_id}, key: {s3_key}")
 
-        # In a real implementation, this would trigger CV processing
-        # process_board_image_async(game_id, s3_key)
-
-        return s3_key
+        # Return both the URL and key as a JSON string so the caller knows
+        # both where to PUT and what key to pass to completeCalibration.
+        return json.dumps({"uploadUrl": presigned_url, "s3Key": s3_key})
 
     except Exception as e:
-        print(f"Error uploading image: {str(e)}")
-        raise Exception(f"Failed to upload image: {str(e)}")
+        print(f"Error generating pre-signed URL: {str(e)}")
+        raise Exception(f"Failed to generate upload URL: {str(e)}")
 
 
 def process_board_image_async(game_id: str, s3_key: str):

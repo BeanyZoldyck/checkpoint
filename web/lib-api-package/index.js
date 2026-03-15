@@ -12993,167 +12993,190 @@ function generateClient2(options) {
 
 // src/lib/config.ts
 var DEFAULT_CONFIG = {
-  aws_appsync_graphqlEndpoint: "https://your-appsync-endpoint.appsync-api.region.amazonaws.com/graphql",
-  aws_appsync_region: "us-east-1",
+  aws_appsync_graphqlEndpoint: "https://wltticbi65fl5kmnpsenbj26ky.appsync-api.us-east-2.amazonaws.com/graphql",
+  aws_appsync_region: "us-east-2",
   aws_appsync_authenticationType: "API_KEY",
-  aws_appsync_apiKey: "your-api-key-here"
+  aws_appsync_apiKey: "da2-idf5umd5m5hu3cui4hyi526dee"
 };
 function getAppSyncConfig() {
   return DEFAULT_CONFIG;
 }
 
 // src/lib/api.ts
-var appSyncConfig = {};
-function configureAWS(config2) {
-  appSyncConfig = config2 || getAppSyncConfig();
-  DefaultAmplify.configure({
-    API: {
-      GraphQL: {
-        endpoint: appSyncConfig.aws_appsync_graphqlEndpoint,
-        region: appSyncConfig.aws_appsync_region,
-        defaultAuthMode: "apiKey",
-        apiKey: appSyncConfig.aws_appsync_apiKey
-      }
+var cfg = getAppSyncConfig();
+DefaultAmplify.configure({
+  API: {
+    GraphQL: {
+      endpoint: cfg.aws_appsync_graphqlEndpoint,
+      region: cfg.aws_appsync_region,
+      defaultAuthMode: "apiKey",
+      apiKey: cfg.aws_appsync_apiKey
     }
-  });
-}
+  }
+});
 var client = generateClient2();
-var STUB_MODE = !appSyncConfig.aws_appsync_graphqlEndpoint || appSyncConfig.aws_appsync_graphqlEndpoint.includes("your-appsync-endpoint");
-var RESET_BOARD_MUTATION = `
-  mutation ResetBoard($input: ResetBoardInput!) {
-    resetBoard(input: $input) {
-      success
-      gameId
-      message
-      error
-    }
-  }
-`;
-var RESET_SUBSCRIPTION = `
-  subscription OnBoardReset($gameId: ID!) {
-    onBoardReset(gameId: $gameId) {
-      success
-      gameId
-      message
-      error
-    }
-  }
-`;
-var GET_GAME_QUERY = `
-  query GetGame($gameId: ID!) {
-    getGame(gameId: $gameId) {
-      gameId
-      joinCode
+var CONNECT_DIGITAL_PLAYER = (
+  /* GraphQL */
+  `
+  mutation ConnectDigitalPlayer {
+    connectDigitalPlayer {
+      id
       status
+      currentFEN
       currentTurn
-      state
-      lastMove {
-        from
-        to
-        san
-      }
-      winner
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
       createdAt
       updatedAt
     }
   }
-`;
-async function resetBoard(gameId, playerId, resetType = "FULL_RESET") {
-  if (STUB_MODE) {
-    console.log("[STUB] Would reset board:", { gameId, playerId, resetType });
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return {
-      success: true,
-      gameId,
-      message: `Board reset with type: ${resetType}`
-    };
-  }
+`
+);
+async function connectDigitalPlayer() {
   try {
-    const result = await client.graphql({
-      query: RESET_BOARD_MUTATION,
-      variables: {
-        input: {
-          gameId,
-          playerId,
-          resetType
-        }
-      }
-    });
-    return result.data.resetBoard;
-  } catch (error) {
-    console.error("Error resetting board:", error);
-    return {
-      success: false,
-      gameId,
-      error: "Failed to reset board"
-    };
+    const result = await client.graphql({ query: CONNECT_DIGITAL_PLAYER });
+    return result.data?.connectDigitalPlayer ?? null;
+  } catch (err) {
+    console.error("connectDigitalPlayer error:", err);
+    return null;
   }
 }
-function subscribeToResetEvents(gameId, onReset, onStatusChange) {
-  if (STUB_MODE) {
-    console.log("[STUB] Would subscribe to reset events for game:", gameId);
-    onStatusChange?.("connected");
-    return () => {
-      onStatusChange?.("disconnected");
-    };
+var MAKE_DIGITAL_MOVE = (
+  /* GraphQL */
+  `
+  mutation MakeDigitalMove($from: String!, $to: String!, $promotion: String) {
+    makeDigitalMove(from: $from, to: $to, promotion: $promotion) {
+      id
+      gameId
+      from
+      to
+      piece
+      san
+      fen
+      playerColor
+      moveNumber
+      timestamp
+    }
   }
+`
+);
+async function makeDigitalMove(from2, to, promotion) {
+  try {
+    const result = await client.graphql({
+      query: MAKE_DIGITAL_MOVE,
+      variables: { from: from2, to, promotion: promotion ?? null }
+    });
+    return result.data?.makeDigitalMove ?? null;
+  } catch (err) {
+    console.error("makeDigitalMove error:", err);
+    return null;
+  }
+}
+var UPDATE_PLAYER_CONNECTION = (
+  /* GraphQL */
+  `
+  mutation UpdatePlayerConnection($playerType: String!, $connected: Boolean!) {
+    updatePlayerConnection(playerType: $playerType, connected: $connected) {
+      id
+      digitalPlayerConnected
+      physicalPlayerConnected
+    }
+  }
+`
+);
+async function updatePlayerConnection(connected) {
+  try {
+    await client.graphql({
+      query: UPDATE_PLAYER_CONNECTION,
+      variables: { playerType: "digital", connected }
+    });
+  } catch (err) {
+    console.error("updatePlayerConnection error:", err);
+  }
+}
+var GET_CURRENT_GAME = (
+  /* GraphQL */
+  `
+  query GetCurrentGame {
+    getCurrentGame {
+      id
+      status
+      currentFEN
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
+      createdAt
+      updatedAt
+    }
+  }
+`
+);
+async function getCurrentGame() {
+  try {
+    const result = await client.graphql({ query: GET_CURRENT_GAME });
+    return result.data?.getCurrentGame ?? null;
+  } catch (err) {
+    console.error("getCurrentGame error:", err);
+    return null;
+  }
+}
+var ON_GAME_EVENT = (
+  /* GraphQL */
+  `
+  subscription OnGameEvent {
+    onGameEvent {
+      id
+      gameId
+      from
+      to
+      piece
+      san
+      fen
+      playerColor
+      moveNumber
+      timestamp
+    }
+  }
+`
+);
+function subscribeToMoves(onMove, onStatusChange) {
   try {
     onStatusChange?.("connected");
-    const subscription = client.graphql({
-      query: RESET_SUBSCRIPTION,
-      variables: { gameId }
-    }).subscribe({
+    const sub = client.graphql({ query: ON_GAME_EVENT }).subscribe({
       next: (data) => {
-        const resetData = data.data?.onBoardReset;
-        if (resetData) {
-          onReset(resetData);
+        const move = data?.data?.onGameEvent;
+        if (move?.from && move?.to) {
+          onMove(move);
         }
       },
-      error: (error) => {
-        console.error("Reset subscription error:", error);
+      error: (err) => {
+        console.error("subscribeToMoves error:", err);
         onStatusChange?.("disconnected");
       }
     });
     return () => {
-      subscription.unsubscribe();
+      sub.unsubscribe();
       onStatusChange?.("disconnected");
     };
-  } catch (error) {
-    console.error("Error setting up reset subscription:", error);
+  } catch (err) {
+    console.error("Error setting up subscribeToMoves:", err);
     onStatusChange?.("disconnected");
     return () => {
     };
   }
 }
-async function getGameState(gameId) {
-  if (STUB_MODE) {
-    console.log("[STUB] Would get game state for:", gameId);
-    return {
-      gameId,
-      status: "active",
-      currentTurn: "white",
-      state: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-  }
-  try {
-    const result = await client.graphql({
-      query: GET_GAME_QUERY,
-      variables: { gameId }
-    });
-    return result.data.getGame;
-  } catch (error) {
-    console.error("Error getting game state:", error);
-    return null;
-  }
-}
-configureAWS();
 export {
-  configureAWS,
-  getGameState,
-  resetBoard,
-  subscribeToResetEvents
+  connectDigitalPlayer,
+  getCurrentGame,
+  makeDigitalMove,
+  subscribeToMoves,
+  updatePlayerConnection
 };
 /*! Bundled license information:
 

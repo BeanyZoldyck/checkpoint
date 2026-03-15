@@ -1,120 +1,205 @@
-cl import from "react" { useState, useEffect, useCallback }
+cl import from "react" { useState, useEffect, useRef }
 cl import from ".Chessboard" { Chessboard }
 cl import from "..ui.button" { Button }
 cl import from "..ui.card" { Card, CardContent, CardHeader, CardTitle }
 cl import from "..ui.badge" { Badge }
 cl import from "..ui.alert" { Alert, AlertTitle, AlertDescription }
 cl import from "..ui.separator" { Separator }
-cl import from "...lib.simple_board" { create_board, get_empty_position }
+cl import from "...lib.chess" { create_game }
+cl import from "...lib.api" {
+    connectDigitalPlayer,
+    completeCalibration,
+    makeDigitalMove,
+    updatePlayerConnection,
+    subscribeToMoves
+}
 
 cl {
     def:pub ChessGame(props: {
         gameCode: str,
         playerName: str,
         playerColor?: str,
-        gameType?: str,  # "digital" or "physical"
+        gameType?: str,
         onLeaveGame?: Function
     }) -> JsxElement {
-        [board, setBoard] = useState(None);
+        [game, setGame] = useState(None);
         [position, setPosition] = useState({});
         [moveHistory, setMoveHistory] = useState([]);
         [lastMove, setLastMove] = useState({});
         [highlightedSquares, setHighlightedSquares] = useState([]);
-        [isConnected, setIsConnected] = useState(True);
-        [opponentName, setOpponentName] = useState("Waiting...");
-        [statusMessage, setStatusMessage] = useState("Place pieces on the board!");
-        [playerColor, setPlayerColor] = useState(props["playerColor"] or "white");
-        [placementMode, setPlacementMode] = useState(True);
-        [selectedPieceType, setSelectedPieceType] = useState("wP");
+        [wsStatus, setWsStatus] = useState("disconnected");
+        [opponentConnected, setOpponentConnected] = useState(False);
+        [opponentName, setOpponentName] = useState("Waiting for opponent...");
+        [statusMessage, setStatusMessage] = useState("Connecting to game...");
+        [playerColor, setPlayerColor] = useState(props["playerColor"] if props["playerColor"] else "white");
+        [gameStatus, setGameStatus] = useState("WAITING_FOR_PLAYERS");
+        [currentTurn, setCurrentTurn] = useState("white");
+        [isSendingMove, setIsSendingMove] = useState(False);
+        [isStartingGame, setIsStartingGame] = useState(False);
+
+        unsubRef = useRef(None);
+
+        def refresh_position(g: Any) -> None {
+            if g {
+                setPosition(g.get_position());
+            }
+        }
+
+        def is_my_turn() -> bool {
+            return currentTurn == playerColor;
+        }
+
+        def apply_incoming_move(move: dict) -> None {
+            if not game { return; }
+            move_color = (move["playerColor"] if move["playerColor"] else "").lower();
+            if move_color == playerColor { return; }
+
+            result = game.make_move({"from": move["from"], "to": move["to"]});
+            if result["success"] {
+                refresh_position(game);
+                setLastMove({"from": move["from"], "to": move["to"]});
+                newHistory = moveHistory.slice(0);
+                newHistory.push({"san": result["san"], "color": move_color});
+                setMoveHistory(newHistory);
+                new_turn = "white" if move_color == "black" else "black";
+                setCurrentTurn(new_turn);
+                if result.get("isCheckmate") {
+                    setStatusMessage(f"Checkmate! {move_color.capitalize()} wins!");
+                    setGameStatus("COMPLETED");
+                } elif result.get("isStalemate") or result.get("isDraw") {
+                    setStatusMessage("Draw!");
+                    setGameStatus("COMPLETED");
+                } elif result.get("isCheck") {
+                    setStatusMessage("Check! Your turn.");
+                } else {
+                    setStatusMessage("Your turn!" if new_turn == playerColor else "Opponent's turn...");
+                }
+            }
+        }
 
         useEffect(lambda() -> None {
-            # Initialize simple board
-            newBoard = create_board();
-            setBoard(newBoard);
-            setPosition(newBoard.get_position());
-            setStatusMessage("Click on squares to place pieces!");
-            
-            # Mock opponent connection after 2 seconds  
-            setTimeout(lambda() -> None {
-                if props["gameType"] == "physical" {
-                    setOpponentName("Digital Player");
-                } else {
-                    setOpponentName("Physical Player");
+            g = create_game();
+            setGame(g);
+            refresh_position(g);
+
+            connectDigitalPlayer().then(lambda(gameData: Any) -> None {
+                if gameData {
+                    setGameStatus(gameData["status"] if gameData["status"] else "WAITING_FOR_PLAYERS");
+                    if gameData["status"] == "ACTIVE" and gameData["currentFEN"] {
+                        g.load_fen(gameData["currentFEN"]);
+                        refresh_position(g);
+                    }
+                    dc = (gameData["digitalPlayerColor"] if gameData["digitalPlayerColor"] else "WHITE").lower();
+                    setPlayerColor(dc);
+                    g.set_player_color(dc);
+                    setOpponentConnected(gameData["physicalPlayerConnected"] or False);
+                    if gameData["physicalPlayerConnected"] {
+                        setOpponentName("Physical Player");
+                    }
+                    turn = (gameData["currentTurn"] if gameData["currentTurn"] else "WHITE").lower();
+                    setCurrentTurn(turn);
+                    setStatusMessage("Your turn!" if turn == dc else "Waiting for opponent's move...");
                 }
-                setStatusMessage(f"Ready to play as {playerColor}!");
-                setIsConnected(True);
-            }, 2000);
+            }).catch(lambda(err: Any) -> None {
+                setStatusMessage("Could not reach server — moves will not sync.");
+            });
+
+            unsub = subscribeToMoves(
+                lambda(move: Any) -> None { apply_incoming_move(move); },
+                lambda(status: str) -> None { setWsStatus(status); }
+            );
+            unsubRef.current = unsub;
+            updatePlayerConnection(True);
+
+            return lambda() -> None {
+                if unsubRef.current { unsubRef.current(); }
+                updatePlayerConnection(False);
+            };
         }, []);
 
         def handle_move(move: dict) -> None {
-            if not board or placementMode {
-                setStatusMessage("Place pieces first or start the game!");
+            if not game { return; }
+            if not is_my_turn() {
+                setStatusMessage("Not your turn!");
+                return;
+            }
+            if isSendingMove { return; }
+
+            result = game.make_move({
+                "from": move["from"],
+                "to": move["to"],
+                "promotion": move["promotion"] if move.get("promotion") else "q"
+            });
+
+            if not result["success"] {
+                setStatusMessage("Illegal move.");
                 return;
             }
 
-            # Simple move - just move the piece from one square to another
-            success = board.move_piece(move["from"], move["to"]);
-            
-            if success {
-                setPosition(board.get_position());
-                setLastMove({
-                    "from": move["from"],
-                    "to": move["to"]
-                });
-                setStatusMessage(f"Moved piece from {move['from']} to {move['to']}");
-                
-                # Add to move history
-                newHistory = moveHistory.slice(0);
-                newHistory.push({
-                    "from": move["from"],
-                    "to": move["to"],
-                    "san": f"{move['from']}-{move['to']}"
-                });
-                setMoveHistory(newHistory);
+            refresh_position(game);
+            setLastMove({"from": move["from"], "to": move["to"]});
+            newHistory = moveHistory.slice(0);
+            newHistory.push({"san": result["san"], "color": playerColor});
+            setMoveHistory(newHistory);
+            opp_turn = "black" if playerColor == "white" else "white";
+            setCurrentTurn(opp_turn);
+
+            if result.get("isCheckmate") {
+                setStatusMessage("Checkmate! You win!");
+                setGameStatus("COMPLETED");
+            } elif result.get("isStalemate") or result.get("isDraw") {
+                setStatusMessage("Draw!");
+                setGameStatus("COMPLETED");
+            } elif result.get("isCheck") {
+                setStatusMessage("Check! Waiting for opponent...");
             } else {
-                setStatusMessage("No piece to move!");
+                setStatusMessage("Waiting for opponent's move...");
             }
+
+            setIsSendingMove(True);
+            prom = move["promotion"] if move.get("promotion") else None;
+            makeDigitalMove(move["from"], move["to"], prom).then(lambda(r: Any) -> None {
+                setIsSendingMove(False);
+            }).catch(lambda(err: Any) -> None {
+                setIsSendingMove(False);
+                if game { game.undo_move(); }
+                refresh_position(game);
+                setMoveHistory(newHistory.slice(0, -1));
+                setCurrentTurn(playerColor);
+                setStatusMessage("Failed to send move. Try again.");
+            });
         }
 
-        def handle_place_piece(square: str) -> None {
-            if not board or not placementMode {
-                return;
+        def handle_start_game() -> None {
+            setIsStartingGame(True);
+            setGameStatus("ACTIVE");
+            if game {
+                game.reset();
+                refresh_position(game);
             }
-
-            # Check if square is empty or if we want to replace a piece
-            currentPiece = board.get_piece(square);
-            if currentPiece {
-                # Remove piece if clicking on occupied square
-                board.remove_piece(square);
-                setStatusMessage(f"Removed piece from {square}");
-            } else {
-                # Place selected piece type on empty square
-                board.place_piece(square, selectedPieceType);
-                setStatusMessage(f"Placed {selectedPieceType} on {square}");
-            }
-            
-            # Update position display
-            setPosition(board.get_position());
+            setStatusMessage("Your turn!" if currentTurn == playerColor else "Waiting for opponent's move...");
+            completeCalibration().then(lambda(result: Any) -> None {
+                setIsStartingGame(False);
+            }).catch(lambda(err: Any) -> None {
+                setIsStartingGame(False);
+            });
         }
 
         def handle_resign() -> None {
-            setStatusMessage("Game resigned.");
-        }
-
-        def handle_offer_draw() -> None {
-            setStatusMessage("Draw offer sent to opponent");
+            setStatusMessage("You resigned.");
+            setGameStatus("COMPLETED");
         }
 
         def handle_leave_game() -> None {
-            if props["onLeaveGame"] {
-                props["onLeaveGame"]();
-            }
+            if unsubRef.current { unsubRef.current(); }
+            updatePlayerConnection(False);
+            if props["onLeaveGame"] { props["onLeaveGame"](); }
         }
 
         def get_status_variant() -> str {
             if statusMessage.includes("Checkmate") or statusMessage.includes("resign") {
                 return "destructive";
-            } elif statusMessage.includes("Check") {
+            } elif statusMessage.includes("Check!") {
                 return "secondary";
             } elif statusMessage.includes("Draw") or statusMessage.includes("Stalemate") {
                 return "outline";
@@ -123,17 +208,17 @@ cl {
             }
         }
 
-        def get_connection_badge_variant() -> str {
-            if isConnected {
+        def get_ws_badge_variant() -> str {
+            if wsStatus == "connected" {
                 return "default";
             } else {
                 return "destructive";
             }
         }
 
-        def get_connection_status_text() -> str {
-            if isConnected {
-                return "Connected";
+        def get_ws_badge_text() -> str {
+            if wsStatus == "connected" {
+                return "Live";
             } else {
                 return "Disconnected";
             }
@@ -143,28 +228,31 @@ cl {
             return playerColor.charAt(0).toUpperCase() + playerColor.slice(1);
         }
 
-        def get_current_player_badge_variant() -> str {
-            return "default";  # Simplified
-        }
-
-        def get_opponent_badge_variant() -> str {
-            return "secondary";  # Simplified
-        }
-
         def get_opponent_color() -> str {
-            if playerColor == "white" {
-                return "black";
-            } else {
-                return "white";
+            return "black" if playerColor == "white" else "white";
+        }
+
+        def render_sending_badge() -> JsxElement {
+            if isSendingMove {
+                return <Badge variant="secondary">Sending...</Badge>;
             }
+            return <></>;
         }
 
-        def get_current_turn_text() -> str {
-            return "White's turn";  # Simplified since we don't track turns
+        def render_opponent_status() -> JsxElement {
+            if opponentConnected {
+                return <span className="text-xs text-green-600">Online</span>;
+            }
+            return <span className="text-xs text-muted-foreground">Waiting...</span>;
         }
 
-        def get_game_status_text() -> str {
-            return "Placing pieces";  # Simplified status
+        def render_move_history_content() -> JsxElement {
+            if len(moveHistory) > 0 {
+                return <div className="space-y-1">
+                    {render_move_history_items()}
+                </div>;
+            }
+            return <p className="text-sm text-muted-foreground">No moves yet</p>;
         }
 
         def format_move_history() -> list {
@@ -172,14 +260,8 @@ cl {
             has i: int = 0;
             while i < len(moveHistory) {
                 has move_number: int = (i // 2) + 1;
-                has white_move: str = "";
-                if i < len(moveHistory) {
-                    white_move = (moveHistory[i]["san"] if moveHistory[i] else "") or "";
-                }
-                has black_move: str = "";
-                if i + 1 < len(moveHistory) {
-                    black_move = (moveHistory[i + 1]["san"] if moveHistory[i + 1] else "") or "";
-                }
+                has white_move: str = moveHistory[i]["san"] if i < len(moveHistory) else "";
+                has black_move: str = moveHistory[i + 1]["san"] if i + 1 < len(moveHistory) else "";
                 formatted.append({
                     "number": move_number,
                     "white": white_move,
@@ -195,11 +277,11 @@ cl {
             has formatted: list = format_move_history();
             has i: int = 0;
             while i < len(formatted) {
-                has move: dict = formatted[i];
-                items.append(<div className="flex items-center gap-4 text-sm font-mono">
-                    <span className="w-6 text-muted-foreground">{move.number}.</span>
-                    <span className="w-12">{move.white}</span>
-                    <span className="w-12">{move.black}</span>
+                has mv: dict = formatted[i];
+                items.append(<div key={i} className="flex items-center gap-4 text-sm font-mono">
+                    <span className="w-6 text-muted-foreground">{mv.number}.</span>
+                    <span className="w-12">{mv.white}</span>
+                    <span className="w-12 text-muted-foreground">{mv.black}</span>
                 </div>);
                 i = i + 1;
             }
@@ -215,12 +297,13 @@ cl {
                                 Game {props.gameCode}
                             </CardTitle>
                             <div className="flex items-center gap-2">
-                                <Badge variant={get_connection_badge_variant()}>
-                                    {get_connection_status_text()}
+                                <Badge variant={get_ws_badge_variant()}>
+                                    {get_ws_badge_text()}
                                 </Badge>
                                 <Badge variant="outline">
                                     {format_player_color()}
                                 </Badge>
+                                {render_sending_badge()}
                             </div>
                         </div>
                     </CardHeader>
@@ -241,23 +324,24 @@ cl {
                         highlightSquares={highlightedSquares}
                         showCoordinates={True}
                         size={480}
+                        interactive={is_my_turn() and gameStatus == "ACTIVE" and not isSendingMove}
                     />
                 </div>
 
                 <Card>
                     <CardContent className="pt-6">
                         <div className="flex flex-wrap gap-2 justify-center">
-                            <Button
-                                variant="outline"
-                                onClick={handle_offer_draw}
-                                disabled={placementMode}
+                            {gameStatus != "ACTIVE" and <Button
+                                variant="default"
+                                onClick={handle_start_game}
+                                disabled={isStartingGame}
                             >
-                                Offer Draw
-                            </Button>
+                                {"Starting..." if isStartingGame else "Start Game"}
+                            </Button>}
                             <Button
                                 variant="destructive"
                                 onClick={handle_resign}
-                                disabled={placementMode}
+                                disabled={gameStatus != "ACTIVE"}
                             >
                                 Resign
                             </Button>
@@ -280,16 +364,15 @@ cl {
                     <CardContent className="space-y-3">
                         <div className="flex items-center justify-between">
                             <span>{props.playerName}</span>
-                            <Badge variant={get_current_player_badge_variant()}>
-                                {playerColor}
-                            </Badge>
+                            <Badge variant="default">{playerColor}</Badge>
                         </div>
                         <Separator />
                         <div className="flex items-center justify-between">
                             <span>{opponentName}</span>
-                            <Badge variant={get_opponent_badge_variant()}>
-                                {get_opponent_color()}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                                <Badge variant="secondary">{get_opponent_color()}</Badge>
+                                {render_opponent_status()}
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -300,14 +383,7 @@ cl {
                     </CardHeader>
                     <CardContent>
                         <div className="max-h-60 overflow-y-auto">
-                            {len(format_move_history()) > 0 &&
-                                <div className="space-y-1">
-                                    {render_move_history_items()}
-                                </div>
-                            }
-                            {len(format_move_history()) == 0 &&
-                                <p className="text-sm text-muted-foreground">No moves yet</p>
-                            }
+                            {render_move_history_content()}
                         </div>
                     </CardContent>
                 </Card>
@@ -318,16 +394,16 @@ cl {
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                            <span>Move count:</span>
-                            <span>{len(moveHistory)}</span>
+                            <span>Status:</span>
+                            <span>{gameStatus}</span>
                         </div>
                         <div className="flex justify-between">
                             <span>Turn:</span>
-                            <span>{get_current_turn_text()}</span>
+                            <span>{currentTurn.charAt(0).toUpperCase() + currentTurn.slice(1)}</span>
                         </div>
                         <div className="flex justify-between">
-                            <span>Status:</span>
-                            <span>{get_game_status_text()}</span>
+                            <span>Moves:</span>
+                            <span>{len(moveHistory)}</span>
                         </div>
                     </CardContent>
                 </Card>

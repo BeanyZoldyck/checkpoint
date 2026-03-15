@@ -10,19 +10,10 @@ cl {
             self.playerColor: str = "white";
             self.opponentColor: str = "black";
             self.isMyTurn: bool = True;
-            
-            # Debug: log the engine initialization
-            if self.engine {
-                print(f"Chess engine initialized: {self.engine}");
-                print(f"Initial FEN: {self.engine.fen()}");
-            } else {
-                print("ERROR: Chess engine failed to initialize!");
-            }
         }
 
         def get_position(self) -> dict {
             board = {};
-            print(f"Getting position from engine: {self.engine}");
             
             # Use the correct squares for chess.js get() method
             squares = ['a8','b8','c8','d8','e8','f8','g8','h8',
@@ -35,18 +26,11 @@ cl {
                       'a1','b1','c1','d1','e1','f1','g1','h1'];
             
             for square in squares {
-                try {
-                    piece = self.engine.get(square);
-                    if piece {
-                        board[square] = f"{piece.color}{piece.type.toUpperCase()}";
-                    }
-                } except Exception as e {
-                    print(f"Error getting piece at {square}: {e}");
-                    continue;
+                piece = self.engine.get(square);
+                if piece {
+                    board[square] = piece["color"] + piece["type"].toUpperCase();
                 }
             }
-            print(f"Found {len(board)} pieces on the board");
-            print(f"Board: {board}");
             return board;
         }
 

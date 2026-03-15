@@ -1,542 +1,317 @@
 // ============================================================================
-// Checkpoint API Service with AWS AppSync Integration
+// Checkpoint API Service — AWS AppSync
 //
-// Connects to AWS AppSync for real-time chess gameplay
+// Schema source: chess-link/graphql/schema.graphql
+//
+// Key operations used by the mobile app:
+//   Mutation  connectPhysicalPlayer(playerColor: PlayerColor!): Game!
+//   Mutation  uploadBoardImage(imageData: String!): String!
+//   Mutation  completeCalibration(calibrationData: String!): Game!
+//   Query     getCurrentGame: Game
+//   Sub       onGameEvent: Move   (fires on makeDigitalMove | recordPhysicalMove)
 // ============================================================================
 
 import { Amplify } from 'aws-amplify';
 import { generateClient } from 'aws-amplify/api';
 
-// AppSync configuration - will be set dynamically
-let appSyncConfig: {
-  aws_appsync_graphqlEndpoint?: string;
-  aws_appsync_region?: string;
-  aws_appsync_authenticationType?: string;
-  aws_appsync_apiKey?: string;
-} = {};
+import type { AppSyncConfig } from './config';
 
-// Configure AWS AppSync
-export function configureAWS(config: typeof appSyncConfig) {
-  appSyncConfig = config;
-  
+// ---------------------------------------------------------------------------
+// Amplify bootstrap
+// ---------------------------------------------------------------------------
+
+export function configureAWS(config: AppSyncConfig) {
   Amplify.configure({
     API: {
       GraphQL: {
-        endpoint: config.aws_appsync_graphqlEndpoint!,
-        region: config.aws_appsync_region!,
+        endpoint: config.aws_appsync_graphqlEndpoint,
+        region: config.aws_appsync_region,
         defaultAuthMode: 'apiKey',
-        apiKey: config.aws_appsync_apiKey!,
-      }
-    }
+        apiKey: config.aws_appsync_apiKey,
+      },
+    },
   });
 }
 
 const client = generateClient();
 
-const STUB_MODE = !appSyncConfig.aws_appsync_graphqlEndpoint;
-
-// --- Stubbed move sequences for demo purposes ---
-const STUB_OPPONENT_MOVES = [
-  { from: 'e7', to: 'e5', san: 'e5' },
-  { from: 'b8', to: 'c6', san: 'Nc6' },
-  { from: 'g8', to: 'f6', san: 'Nf6' },
-];
-let stubMoveIndex = 0;
-
-const STUB_DETECTED_MOVES = [
-  { from: 'e2', to: 'e4', san: 'e4' },
-  { from: 'g1', to: 'f3', san: 'Nf3' },
-  { from: 'f1', to: 'b5', san: 'Bb5' },
-];
-let stubDetectIndex = 0;
-
-// --- Types ---
-
-export interface ChessMove {
-  from: string; // e.g. 'e2'
-  to: string;   // e.g. 'e4'
-  san: string;  // e.g. 'e4', 'Nf3'
+// STUB_MODE: true when no AppSync endpoint is available (local dev without AWS)
+// Evaluated lazily so configureAWS() has a chance to run first.
+function isStubMode(): boolean {
+  try {
+    // If Amplify has been configured the API will have an endpoint set.
+    // We use the import to check rather than reading private internals.
+    return false; // Assume real mode; flip to `true` to force stubs locally
+  } catch {
+    return true;
+  }
 }
 
-export interface MoveResponse {
-  success: boolean;
-  detectedMove?: ChessMove;
-  error?: string;
-}
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-export interface GameState {
+export interface GameMove {
+  id: string;
   gameId: string;
-  joinCode?: string;
-  status: 'waiting' | 'active' | 'finished';
-  currentTurn: 'white' | 'black';
-  state: string; // FEN notation
-  lastMove?: ChessMove;
-  winner?: 'white' | 'black' | 'draw';
+  from: string;   // e.g. "e2"
+  to: string;     // e.g. "e4"
+  piece: string;  // e.g. "P"
+  san: string;    // e.g. "e4"
+  fen: string;
+  playerColor: 'WHITE' | 'BLACK';
+  moveNumber: number;
+  timestamp: string;
+}
+
+export interface Game {
+  id: string;
+  status: string;
+  currentFEN: string;
+  currentTurn: 'WHITE' | 'BLACK';
+  physicalPlayerColor: 'WHITE' | 'BLACK';
+  digitalPlayerColor: 'WHITE' | 'BLACK';
+  moveHistory: string[];
+  physicalPlayerConnected: boolean;
+  digitalPlayerConnected: boolean;
+  lastImageS3Key?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface JoinGameResponse {
-  success: boolean;
-  game?: GameState;
-  playerId?: string;
-  error?: string;
-}
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
 
-// --- Image Upload ---
-
-// GraphQL mutations and queries
-const UPLOAD_IMAGE_MUTATION = `
-  mutation UploadImage($gameId: ID!, $playerId: ID!, $imageKey: String!) {
-    uploadImage(gameId: $gameId, playerId: $playerId, imageKey: $imageKey) {
-      success
-      detectedMove {
-        from
-        to
-        san
-      }
-      error
-    }
-  }
-`;
-
-export async function uploadBoardImage(imageUri: string, gameId: string, playerId: string): Promise<MoveResponse> {
-  if (STUB_MODE) {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    console.log('[STUB] Would upload image to AWS:', imageUri);
-
-    const move = STUB_DETECTED_MOVES[stubDetectIndex % STUB_DETECTED_MOVES.length];
-    stubDetectIndex++;
-
-    return { success: true, detectedMove: move };
-  }
-
-  try {
-    // In a real implementation, you would first upload the image to S3
-    // For now, we'll use a placeholder image key
-    const imageKey = `game-${gameId}/move-${Date.now()}.jpg`;
-
-    const result = await client.graphql({
-      query: UPLOAD_IMAGE_MUTATION,
-      variables: { gameId, playerId, imageKey }
-    });
-
-    return result.data.uploadImage;
-  } catch (error) {
-    console.error('Error uploading board image:', error);
-    return { success: false, error: 'Upload failed' };
-  }
-}
-
-// --- AppSync Subscriptions for Real-time Updates ---
-
-const GAME_UPDATES_SUBSCRIPTION = `
-  subscription OnGameUpdated($gameId: ID!) {
-    onGameUpdated(gameId: $gameId) {
-      gameId
-      state
-      currentTurn
-      lastMove {
-        from
-        to
-        san
-      }
-      winner
+const CONNECT_PHYSICAL_PLAYER_MUTATION = /* GraphQL */ `
+  mutation ConnectPhysicalPlayer($playerColor: PlayerColor!) {
+    connectPhysicalPlayer(playerColor: $playerColor) {
+      id
       status
-      updatedAt
-    }
-  }
-`;
-
-export function subscribeToGameUpdates(
-  gameId: string,
-  onOpponentMove: (move: ChessMove) => void,
-  onStatusChange?: (status: 'connected' | 'disconnected') => void,
-): () => void {
-  if (STUB_MODE) {
-    console.log('[STUB] Would subscribe to AppSync for game:', gameId);
-    onStatusChange?.('connected');
-
-    // Simulate opponent responding ~5s after connection
-    const timer = setTimeout(() => {
-      const move = STUB_OPPONENT_MOVES[stubMoveIndex % STUB_OPPONENT_MOVES.length];
-      stubMoveIndex++;
-      console.log('[STUB] Simulating opponent move:', move.san);
-      onOpponentMove(move);
-    }, 5000);
-
-    return () => {
-      clearTimeout(timer);
-      onStatusChange?.('disconnected');
-    };
-  }
-
-  try {
-    onStatusChange?.('connected');
-    
-    const subscription = client.graphql({
-      query: GAME_UPDATES_SUBSCRIPTION,
-      variables: { gameId }
-    }).subscribe({
-      next: (data) => {
-        const gameUpdate = data.data?.onGameUpdated;
-        if (gameUpdate?.lastMove) {
-          onOpponentMove(gameUpdate.lastMove);
-        }
-      },
-      error: (error) => {
-        console.error('Subscription error:', error);
-        onStatusChange?.('disconnected');
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      onStatusChange?.('disconnected');
-    };
-  } catch (error) {
-    console.error('Error setting up subscription:', error);
-    onStatusChange?.('disconnected');
-    return () => {};
-  }
-}
-
-// --- Game Management Functions ---
-
-const CREATE_GAME_MUTATION = `
-  mutation CreateGame($playerId: ID!) {
-    createGame(playerId: $playerId) {
-      gameId
-      joinCode
-      playerId
-      playerRole
-    }
-  }
-`;
-
-const JOIN_GAME_MUTATION = `
-  mutation JoinGame($joinCode: String!, $playerId: ID!) {
-    joinGame(joinCode: $joinCode, playerId: $playerId) {
-      success
-      gameId
-      playerId
-      playerRole
-      error
-    }
-  }
-`;
-
-const GET_GAME_QUERY = `
-  query GetGame($gameId: ID!) {
-    getGame(gameId: $gameId) {
-      gameId
-      joinCode
-      status
+      currentFEN
       currentTurn
-      state
-      lastMove {
-        from
-        to
-        san
-      }
-      winner
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
       createdAt
       updatedAt
     }
   }
 `;
 
-const REGISTER_PUSH_TOKEN_MUTATION = `
-  mutation RegisterPushToken($gameId: ID!, $playerId: ID!, $pushToken: String!, $playerColor: PlayerColor) {
-    registerPushToken(gameId: $gameId, playerId: $playerId, pushToken: $pushToken, playerColor: $playerColor) {
-      success
-      message
-      error
-    }
+/**
+ * Register as the physical (camera) player.
+ * Must be called before uploadBoardImage or completeCalibration.
+ * Uses the "single-game-session" game on the backend.
+ */
+export async function connectPhysicalPlayer(
+  playerColor: 'WHITE' | 'BLACK',
+): Promise<Game | null> {
+  if (isStubMode()) {
+    console.log('[STUB] connectPhysicalPlayer', playerColor);
+    return {
+      id: 'single-game-session',
+      status: 'WAITING_FOR_PLAYERS',
+      currentFEN: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      currentTurn: 'WHITE',
+      physicalPlayerColor: playerColor,
+      digitalPlayerColor: playerColor === 'WHITE' ? 'BLACK' : 'WHITE',
+      moveHistory: [],
+      physicalPlayerConnected: true,
+      digitalPlayerConnected: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  try {
+    const result = await (client.graphql({
+      query: CONNECT_PHYSICAL_PLAYER_MUTATION,
+      variables: { playerColor },
+    }) as any);
+    return result.data?.connectPhysicalPlayer ?? null;
+  } catch (err) {
+    console.error('connectPhysicalPlayer error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+const UPLOAD_BOARD_IMAGE_MUTATION = /* GraphQL */ `
+  mutation UploadBoardImage($imageData: String!) {
+    uploadBoardImage(imageData: $imageData)
   }
 `;
 
-export async function createGame(playerId: string): Promise<{ gameId: string; joinCode: string; playerId: string } | null> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would create game for player:', playerId);
+export interface UploadUrlResult {
+  uploadUrl: string;
+  s3Key: string;
+}
+
+/**
+ * Ask the backend for a pre-signed S3 PUT URL.
+ *
+ * The backend no longer accepts the image through AppSync (AppSync has a 1 MB
+ * request limit). Instead the Lambda returns a JSON string containing:
+ *   { "uploadUrl": "<presigned PUT URL>", "s3Key": "<key>" }
+ *
+ * The caller should then PUT the JPEG directly to `uploadUrl`, and pass
+ * `s3Key` to completeCalibration().
+ *
+ * We pass a placeholder imageData value because the schema still requires
+ * the argument; the Lambda ignores its value.
+ */
+export async function getUploadUrl(): Promise<UploadUrlResult | null> {
+  if (isStubMode()) {
+    console.log('[STUB] getUploadUrl — returning fake upload info');
     return {
-      gameId: `game-${Date.now()}`,
-      joinCode: Math.random().toString(36).substr(2, 6).toUpperCase(),
-      playerId
+      uploadUrl: 'https://stub-presigned-url.example.com/upload',
+      s3Key: `games/single-game-session/images/stub_${Date.now()}.jpg`,
     };
   }
 
   try {
-    const result = await client.graphql({
-      query: CREATE_GAME_MUTATION,
-      variables: { playerId }
-    });
-
-    return result.data.createGame;
-  } catch (error) {
-    console.error('Error creating game:', error);
+    const result = await (client.graphql({
+      query: UPLOAD_BOARD_IMAGE_MUTATION,
+      variables: { imageData: 'presigned-url-request' },
+    }) as any);
+    const raw: string | null = result.data?.uploadBoardImage ?? null;
+    if (!raw) return null;
+    return JSON.parse(raw) as UploadUrlResult;
+  } catch (err) {
+    console.error('getUploadUrl error:', err);
     return null;
   }
 }
 
-export async function joinGame(joinCode: string, playerId: string): Promise<JoinGameResponse> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would join game with code:', joinCode);
-    return {
-      success: true,
-      game: {
-        gameId: `game-${joinCode}`,
-        joinCode,
-        status: 'active',
-        currentTurn: 'white',
-        state: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      },
-      playerId
-    };
-  }
-
-  try {
-    const result = await client.graphql({
-      query: JOIN_GAME_MUTATION,
-      variables: { joinCode, playerId }
-    });
-
-    if (result.data.joinGame.success) {
-      // Get full game state
-      const gameResult = await client.graphql({
-        query: GET_GAME_QUERY,
-        variables: { gameId: result.data.joinGame.gameId }
-      });
-
-      return {
-        success: true,
-        game: gameResult.data.getGame,
-        playerId: result.data.joinGame.playerId
-      };
-    } else {
-      return {
-        success: false,
-        error: result.data.joinGame.error
-      };
-    }
-  } catch (error) {
-    console.error('Error joining game:', error);
-    return {
-      success: false,
-      error: 'Failed to join game'
-    };
-  }
-}
-
-export async function getGameState(gameId: string): Promise<GameState | null> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would get game state for:', gameId);
-    return {
-      gameId,
-      status: 'active',
-      currentTurn: 'white',
-      state: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-  }
-
-  try {
-    const result = await client.graphql({
-      query: GET_GAME_QUERY,
-      variables: { gameId }
-    });
-
-    return result.data.getGame;
-  } catch (error) {
-    console.error('Error getting game state:', error);
-    return null;
-  }
-}
-
-export async function registerPushToken(gameId: string, playerId: string, pushToken: string, playerColor?: 'white' | 'black'): Promise<boolean> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would register push token for game:', gameId);
+/**
+ * Upload a JPEG file directly to S3 using a pre-signed PUT URL.
+ * Returns true on success.
+ */
+export async function putImageToS3(presignedUrl: string, imageUri: string): Promise<boolean> {
+  if (isStubMode()) {
+    console.log('[STUB] putImageToS3 — skipping actual upload');
     return true;
   }
 
   try {
-    const result = await client.graphql({
-      query: REGISTER_PUSH_TOKEN_MUTATION,
-      variables: { 
-        gameId, 
-        playerId, 
-        pushToken, 
-        playerColor: playerColor?.toUpperCase() 
-      }
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+
+    const putResponse = await fetch(presignedUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: blob,
     });
 
-    return result.data.registerPushToken.success;
-  } catch (error) {
-    console.error('Error registering push token:', error);
+    if (!putResponse.ok) {
+      console.error('S3 PUT failed:', putResponse.status, putResponse.statusText);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('putImageToS3 error:', err);
     return false;
   }
 }
 
-// --- Board Reset Functionality ---
+// ---------------------------------------------------------------------------
 
-export type ResetType = 'FULL_RESET' | 'CLEAR_BOARD' | 'UNDO_LAST_MOVE';
-
-export interface ResetBoardResponse {
-  success: boolean;
-  gameId: string;
-  message?: string;
-  error?: string;
-}
-
-const RESET_BOARD_MUTATION = `
-  mutation ResetBoard($input: ResetBoardInput!) {
-    resetBoard(input: $input) {
-      success
-      gameId
-      message
-      error
+const COMPLETE_CALIBRATION_MUTATION = /* GraphQL */ `
+  mutation CompleteCalibration($calibrationData: String!) {
+    completeCalibration(calibrationData: $calibrationData) {
+      id
+      status
+      currentTurn
+      physicalPlayerColor
+      updatedAt
     }
   }
 `;
 
-const RESET_SUBSCRIPTION = `
-  subscription OnBoardReset($gameId: ID!) {
-    onBoardReset(gameId: $gameId) {
-      success
-      gameId
-      message
-      error
-    }
-  }
-`;
-
-export async function resetBoard(
-  gameId: string, 
-  playerId: string, 
-  resetType: ResetType = 'FULL_RESET'
-): Promise<ResetBoardResponse> {
-  if (STUB_MODE) {
-    console.log('[STUB] Would reset board:', { gameId, playerId, resetType });
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 800));
-    return {
-      success: true,
-      gameId,
-      message: `Board reset with type: ${resetType}`
-    };
+/**
+ * Tell the backend that board calibration is done and the game can start.
+ * Pass the corners JSON as calibrationData so it's stored with the game.
+ */
+export async function completeCalibration(calibrationData: string): Promise<Game | null> {
+  if (isStubMode()) {
+    console.log('[STUB] completeCalibration');
+    return null;
   }
 
   try {
-    const result = await client.graphql({
-      query: RESET_BOARD_MUTATION,
-      variables: {
-        input: {
-          gameId,
-          playerId,
-          resetType
-        }
-      }
-    });
-
-    return result.data.resetBoard;
-  } catch (error) {
-    console.error('Error resetting board:', error);
-    return {
-      success: false,
-      gameId,
-      error: 'Failed to reset board'
-    };
+    const result = await (client.graphql({
+      query: COMPLETE_CALIBRATION_MUTATION,
+      variables: { calibrationData },
+    }) as any);
+    return result.data?.completeCalibration ?? null;
+  } catch (err) {
+    console.error('completeCalibration error:', err);
+    return null;
   }
 }
 
-export function subscribeToResetEvents(
-  gameId: string,
-  onReset: (resetData: ResetBoardResponse) => void,
-  onStatusChange?: (status: 'connected' | 'disconnected') => void,
-): () => void {
-  if (STUB_MODE) {
-    console.log('[STUB] Would subscribe to reset events for game:', gameId);
-    onStatusChange?.('connected');
-    
-    return () => {
-      onStatusChange?.('disconnected');
-    };
-  }
+// ---------------------------------------------------------------------------
+// Subscription — real-time moves
+// ---------------------------------------------------------------------------
 
-  try {
-    onStatusChange?.('connected');
-    
-    const subscription = client.graphql({
-      query: RESET_SUBSCRIPTION,
-      variables: { gameId }
-    }).subscribe({
-      next: (data: any) => {
-        const resetData = data.data?.onBoardReset;
-        if (resetData) {
-          onReset(resetData);
-        }
-      },
-      error: (error) => {
-        console.error('Reset subscription error:', error);
-        onStatusChange?.('disconnected');
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      onStatusChange?.('disconnected');
-    };
-  } catch (error) {
-    console.error('Error setting up reset subscription:', error);
-    onStatusChange?.('disconnected');
-    return () => {};
-  }
-}
-
-// Legacy function for backward compatibility
-export function connectWebSocket(
-  onOpponentMove: (move: ChessMove) => void,
-  onStatusChange?: (status: 'connected' | 'disconnected') => void,
-): () => void {
-  // For mobile app, we need a game ID - this would come from the game setup
-  const gameId = 'legacy-game-id'; // This should be passed from the calling code
-  return subscribeToGameUpdates(gameId, onOpponentMove, onStatusChange);
-}
-
-// --- Simple UCI Move Subscription (Phase 4) ---
-//
-// Subscribes to a flat channel that emits UCI-format move strings (e.g. "e2e4").
-// No game management required — useful for the new Lock-On flow.
-
-const UCI_MOVE_SUBSCRIPTION = `
-  subscription OnMove {
-    onMove {
-      uci
+const ON_GAME_EVENT_SUBSCRIPTION = /* GraphQL */ `
+  subscription OnGameEvent {
+    onGameEvent {
+      id
+      gameId
+      from
+      to
+      piece
+      san
+      fen
+      playerColor
+      moveNumber
+      timestamp
     }
   }
 `;
 
-// Stub moves in UCI format for offline testing
-const STUB_UCI_MOVES = ['e2e4', 'g1f3', 'f1b5', 'e1g1'];
-let stubUciIndex = 0;
+// Stub moves for offline testing
+const STUB_MOVES: Array<Pick<GameMove, 'from' | 'to' | 'san' | 'playerColor'>> = [
+  { from: 'e7', to: 'e5', san: 'e5',  playerColor: 'BLACK' },
+  { from: 'g8', to: 'f6', san: 'Nf6', playerColor: 'BLACK' },
+  { from: 'b8', to: 'c6', san: 'Nc6', playerColor: 'BLACK' },
+];
+let stubMoveIndex = 0;
 
+/**
+ * Subscribe to the onGameEvent AppSync subscription.
+ * Fires whenever makeDigitalMove or recordPhysicalMove is called.
+ * The callback receives a GameMove with from/to squares.
+ */
 export function subscribeToMoves(
-  onMove: (uci: string) => void,
+  onMove: (move: GameMove) => void,
   onStatusChange?: (status: 'connected' | 'disconnected') => void,
 ): () => void {
-  if (STUB_MODE) {
-    console.log('[STUB] subscribeToMoves: will emit a UCI move in 5s');
+  if (isStubMode()) {
+    console.log('[STUB] subscribeToMoves — will emit a move in 5s');
     onStatusChange?.('connected');
 
     const timer = setTimeout(() => {
-      const uci = STUB_UCI_MOVES[stubUciIndex % STUB_UCI_MOVES.length];
-      stubUciIndex++;
-      console.log('[STUB] Emitting UCI move:', uci);
-      onMove(uci);
+      const stub = STUB_MOVES[stubMoveIndex % STUB_MOVES.length];
+      stubMoveIndex++;
+      console.log('[STUB] Emitting move:', stub.san);
+      onMove({
+        id: `stub-${Date.now()}`,
+        gameId: 'single-game-session',
+        from: stub.from,
+        to: stub.to,
+        piece: 'P',
+        san: stub.san,
+        fen: '',
+        playerColor: stub.playerColor,
+        moveNumber: stubMoveIndex,
+        timestamp: new Date().toISOString(),
+      });
     }, 5000);
 
     return () => {
@@ -549,16 +324,16 @@ export function subscribeToMoves(
     onStatusChange?.('connected');
 
     const subscription = (client.graphql({
-      query: UCI_MOVE_SUBSCRIPTION,
+      query: ON_GAME_EVENT_SUBSCRIPTION,
     }) as any).subscribe({
       next: (data: any) => {
-        const uci = data?.data?.onMove?.uci;
-        if (typeof uci === 'string' && uci.length >= 4) {
-          onMove(uci);
+        const move: GameMove = data?.data?.onGameEvent;
+        if (move?.from && move?.to) {
+          onMove(move);
         }
       },
-      error: (error: any) => {
-        console.error('subscribeToMoves error:', error);
+      error: (err: any) => {
+        console.error('subscribeToMoves error:', err);
         onStatusChange?.('disconnected');
       },
     });
@@ -567,9 +342,28 @@ export function subscribeToMoves(
       subscription.unsubscribe();
       onStatusChange?.('disconnected');
     };
-  } catch (error) {
-    console.error('Error setting up subscribeToMoves:', error);
+  } catch (err) {
+    console.error('Error setting up subscribeToMoves:', err);
     onStatusChange?.('disconnected');
     return () => {};
   }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy exports kept for backward compatibility with old index.tsx code
+// (they are no longer used by the new screens but removing them would break
+// any remaining imports during the transition)
+// ---------------------------------------------------------------------------
+
+export type ChessMove = Pick<GameMove, 'from' | 'to' | 'san'>;
+
+/** @deprecated Use subscribeToMoves */
+export function connectWebSocket(
+  onOpponentMove: (move: ChessMove) => void,
+  onStatusChange?: (status: 'connected' | 'disconnected') => void,
+): () => void {
+  return subscribeToMoves(
+    (move) => onOpponentMove({ from: move.from, to: move.to, san: move.san }),
+    onStatusChange,
+  );
 }

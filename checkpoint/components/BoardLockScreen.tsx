@@ -12,41 +12,8 @@ import Svg, { Line } from 'react-native-svg';
 
 import { useGame } from '@/context/GameContext';
 import type { BoardCorners } from '@/services/chessCoords';
+import { configureAWS, getUploadUrl, putImageToS3, completeCalibration } from '@/services/api';
 import { getAppSyncConfig } from '@/services/config';
-
-// Shape of the Lambda response
-interface LambdaResponse {
-  success: boolean;
-  corners?: {
-    topLeft:     { x: number; y: number };
-    topRight:    { x: number; y: number };
-    bottomRight: { x: number; y: number };
-    bottomLeft:  { x: number; y: number };
-  };
-  imageWidth?:  number;
-  imageHeight?: number;
-  error?: string;
-}
-
-async function detectBoard(imageUri: string, lambdaEndpoint: string): Promise<LambdaResponse> {
-  const formData = new FormData();
-  formData.append('image', {
-    uri: imageUri,
-    name: 'board.jpg',
-    type: 'image/jpeg',
-  } as any);
-
-  const response = await fetch(lambdaEndpoint, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Lambda returned ${response.status}`);
-  }
-
-  return response.json();
-}
 
 // ---------------------------------------------------------------------------
 // Grid guide overlay — 8×8 semi-transparent lines centred on camera view
@@ -61,7 +28,6 @@ function GridGuide({ width, height }: { width: number; height: number }) {
 
   const lines: React.ReactElement[] = [];
 
-  // Vertical lines (9 lines for 8 columns)
   for (let i = 0; i <= 8; i++) {
     const x = offsetX + i * cell;
     lines.push(
@@ -75,13 +41,12 @@ function GridGuide({ width, height }: { width: number; height: number }) {
     );
   }
 
-  // Horizontal lines (9 lines for 8 rows)
   for (let i = 0; i <= 8; i++) {
     const y = offsetY + i * cell;
     lines.push(
       <Line
         key={`h${i}`}
-        x1={offsetX}     y1={y}
+        x1={offsetX}        y1={y}
         x2={offsetX + size} y2={y}
         stroke="rgba(255,255,255,0.35)"
         strokeWidth="1"
@@ -89,24 +54,39 @@ function GridGuide({ width, height }: { width: number; height: number }) {
     );
   }
 
-  // Bolder border
+  // Bold border
   lines.push(
-    <Line key="border-t" x1={offsetX} y1={offsetY} x2={offsetX + size} y2={offsetY} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
-    <Line key="border-b" x1={offsetX} y1={offsetY + size} x2={offsetX + size} y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
-    <Line key="border-l" x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
-    <Line key="border-r" x1={offsetX + size} y1={offsetY} x2={offsetX + size} y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
+    <Line key="bt" x1={offsetX} y1={offsetY}        x2={offsetX + size} y2={offsetY}        stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
+    <Line key="bb" x1={offsetX} y1={offsetY + size} x2={offsetX + size} y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
+    <Line key="bl" x1={offsetX} y1={offsetY}        x2={offsetX}        y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
+    <Line key="br" x1={offsetX + size} y1={offsetY} x2={offsetX + size} y2={offsetY + size} stroke="rgba(255,215,0,0.6)" strokeWidth="2" />,
   );
 
   return (
-    <Svg
-      width={width}
-      height={height}
-      style={StyleSheet.absoluteFill}
-      pointerEvents="none"
-    >
+    <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
       {lines}
     </Svg>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Derive board corners from the captured image dimensions.
+//
+// The backend CV pipeline is not yet returning corners, so we compute a
+// reasonable approximation: assume the board occupies the central 80% of
+// the image (square crop). This will be replaced once the backend returns
+// real corner coordinates.
+// ---------------------------------------------------------------------------
+function cornersFromImageSize(imageWidth: number, imageHeight: number): BoardCorners {
+  const boardSize = Math.min(imageWidth, imageHeight) * 0.80;
+  const offsetX = (imageWidth  - boardSize) / 2;
+  const offsetY = (imageHeight - boardSize) / 2;
+  return {
+    topLeft:     { x: offsetX,            y: offsetY },
+    topRight:    { x: offsetX + boardSize, y: offsetY },
+    bottomRight: { x: offsetX + boardSize, y: offsetY + boardSize },
+    bottomLeft:  { x: offsetX,            y: offsetY + boardSize },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,51 +98,59 @@ export function BoardLockScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [layout, setLayout] = useState({ width: 0, height: 0 });
   const [locking, setLocking] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { setLockedBoard } = useGame();
-  const config = getAppSyncConfig();
 
   const handleLockOn = useCallback(async () => {
     if (!cameraRef.current || locking) return;
     setLocking(true);
     setError(null);
+    setStatusMsg('Capturing…');
 
     try {
+      // 1. Capture photo
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.85,
+        quality: 0.7,
         base64: false,
       });
 
-      if (!photo?.uri) throw new Error('No photo captured');
-
-      const result = await detectBoard(photo.uri, config.lambdaEndpoint);
-
-      if (result.success && result.corners && result.imageWidth && result.imageHeight) {
-        const corners: BoardCorners = {
-          topLeft:     result.corners.topLeft,
-          topRight:    result.corners.topRight,
-          bottomRight: result.corners.bottomRight,
-          bottomLeft:  result.corners.bottomLeft,
-        };
-        setLockedBoard(corners, result.imageWidth, result.imageHeight);
-      } else {
-        setError('Board not found — align the board inside the grid and try again');
+      if (!photo?.uri || !photo.width || !photo.height) {
+        throw new Error('No photo captured');
       }
-    } catch (err) {
+
+      // 2. Derive board corners and advance to game immediately
+      const corners = cornersFromImageSize(photo.width, photo.height);
+      setLockedBoard(corners, photo.width, photo.height);
+
+      // 3. Fire-and-forget backend sync (non-blocking)
+      configureAWS(getAppSyncConfig());
+      getUploadUrl().then(uploadInfo => {
+        if (!uploadInfo) return;
+        return putImageToS3(uploadInfo.uploadUrl, photo.uri).then(uploaded => {
+          if (!uploaded) return;
+          const calibrationData = JSON.stringify({
+            corners,
+            imageWidth:  photo.width,
+            imageHeight: photo.height,
+            s3Key: uploadInfo.s3Key,
+          });
+          return completeCalibration(calibrationData);
+        });
+      }).catch(err => console.warn('[BoardLock] background sync failed (non-fatal):', err));
+
+    } catch (err: any) {
       console.error('Lock-on failed:', err);
-      setError('Could not reach the server — check your connection and try again');
+      setError(err?.message ?? 'Something went wrong — try again');
     } finally {
       setLocking(false);
+      setStatusMsg(null);
     }
-  }, [locking, config.lambdaEndpoint, setLockedBoard]);
+  }, [locking, setLockedBoard]);
 
-  // Permission not yet determined
-  if (!permission) {
-    return <View style={styles.center} />;
-  }
+  if (!permission) return <View style={styles.center} />;
 
-  // Permission denied
   if (!permission.granted) {
     return (
       <View style={styles.center}>
@@ -216,7 +204,7 @@ export function BoardLockScreen() {
           {locking ? (
             <>
               <ActivityIndicator color="#000" size="small" style={{ marginRight: 8 }} />
-              <Text style={styles.lockBtnText}>Detecting…</Text>
+              <Text style={styles.lockBtnText}>{statusMsg ?? 'Working…'}</Text>
             </>
           ) : (
             <Text style={styles.lockBtnText}>Lock On</Text>

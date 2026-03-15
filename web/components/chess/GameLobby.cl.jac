@@ -13,16 +13,14 @@ cl {
         onJoinGame?: Function,
         onStartCamera?: Function
     }) -> JsxElement {
-        has gameCode: str = "";
         has playerName: str = "";
-        has gameType: str = "digital";  # "digital" or "physical"
         has createdGameCode: str = "";
         has isLoading: bool = False;
         has error: str = "";
 
         def generate_game_code() -> str {
-            has chars = "ABCDEFGHIJKLMNPQRSTUVWXYZ123456789";  # Exclude O and 0 for clarity
-            has code = "";
+            chars = "ABCDEFGHIJKLMNPQRSTUVWXYZ123456789";
+            code = "";
             for i in [0, 1, 2, 3, 4, 5] {
                 code += chars[Math.floor(Math.random() * chars.length)];
             }
@@ -34,51 +32,40 @@ cl {
                 error = "Please enter your name";
                 return;
             }
-
             isLoading = True;
             error = "";
-            
-            has newGameCode = generate_game_code();
+            newGameCode = generate_game_code();
             createdGameCode = newGameCode;
-            
-            # Mock API call - in real app this would hit the backend
             setTimeout(lambda() -> None {
                 isLoading = False;
                 if props.onCreateGame {
                     props.onCreateGame({
                         "gameCode": newGameCode,
                         "playerName": playerName,
-                        "gameType": gameType
+                        "gameType": "physical"
                     });
                 }
-            }, 1000);
+            }, 500);
         }
 
         def handle_join_game() -> None {
-            if not gameCode.trim() {
-                error = "Please enter a game code";
-                return;
-            }
-            
             if not playerName.trim() {
                 error = "Please enter your name";
                 return;
             }
-
             isLoading = True;
             error = "";
-            
-            # Mock API call - in real app this would validate the game code
+            # Mock join — real connection happens inside ChessGame on mount
             setTimeout(lambda() -> None {
                 isLoading = False;
                 if props.onJoinGame {
                     props.onJoinGame({
-                        "gameCode": gameCode.toUpperCase(),
+                        "gameCode": "session",
                         "playerName": playerName,
-                        "gameType": "digital"  # Digital player always joins existing games
+                        "gameType": "digital"
                     });
                 }
-            }, 1000);
+            }, 500);
         }
 
         def handle_start_camera() -> None {
@@ -86,13 +73,68 @@ cl {
                 error = "Please create a game first";
                 return;
             }
-            
             if props.onStartCamera {
                 props.onStartCamera({
                     "gameCode": createdGameCode,
                     "playerName": playerName
                 });
             }
+        }
+
+        def get_join_btn_label() -> str {
+            if isLoading {
+                return "Connecting...";
+            }
+            return "Connect to Game";
+        }
+
+        def get_create_btn_label() -> str {
+            if isLoading {
+                return "Creating...";
+            }
+            return "Create Game";
+        }
+
+        def render_error_banner() -> JsxElement {
+            if error {
+                return <Alert className="border-destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                </Alert>;
+            }
+            return <></>;
+        }
+
+        def render_create_section() -> JsxElement {
+            if createdGameCode {
+                return <div className="space-y-4">
+                    <Alert className="border-primary">
+                        <AlertDescription>
+                            <div className="space-y-2">
+                                <p>Game created! Share this code:</p>
+                                <div className="text-center">
+                                    <Badge variant="outline" className="text-2xl p-2 font-mono">
+                                        {createdGameCode}
+                                    </Badge>
+                                </div>
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                    <Button
+                        onClick={handle_start_camera}
+                        className="w-full"
+                        variant="default"
+                    >
+                        Start Camera Setup
+                    </Button>
+                </div>;
+            }
+            return <Button
+                onClick={handle_create_game}
+                disabled={isLoading}
+                className="w-full"
+            >
+                {get_create_btn_label()}
+            </Button>;
         }
 
         return <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -103,11 +145,7 @@ cl {
                 </p>
             </div>
 
-            {error ? 
-                <Alert className="border-destructive">
-                    <AlertDescription>{error}</AlertDescription>
-                </Alert>
-            : <></>}
+            {render_error_banner()}
 
             <Tabs defaultValue="join" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
@@ -118,38 +156,27 @@ cl {
                 <TabsContent value="join">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Join Existing Game</CardTitle>
+                            <CardTitle>Join as Digital Player</CardTitle>
                             <CardDescription>
-                                Enter a game code to join as a digital player
+                                Connect to the active game session and play on this board
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="join-name">Your Name</Label>
-                                <Input 
+                                <Input
                                     id="join-name"
                                     placeholder="Enter your name"
                                     value={playerName}
                                     onChange={lambda(e: Any) -> None { playerName = e.target.value; }}
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="game-code">Game Code</Label>
-                                <Input 
-                                    id="game-code"
-                                    placeholder="e.g. ABC123"
-                                    value={gameCode}
-                                    onChange={lambda(e: Any) -> None { gameCode = e.target.value.toUpperCase(); }}
-                                    className="uppercase"
-                                    maxLength={6}
-                                />
-                            </div>
-                            <Button 
+                            <Button
                                 onClick={handle_join_game}
                                 disabled={isLoading}
                                 className="w-full"
                             >
-                                {isLoading ? "Joining..." : "Join Game"}
+                                {get_join_btn_label()}
                             </Button>
                         </CardContent>
                     </Card>
@@ -166,47 +193,14 @@ cl {
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="create-name">Your Name</Label>
-                                <Input 
+                                <Input
                                     id="create-name"
                                     placeholder="Enter your name"
                                     value={playerName}
                                     onChange={lambda(e: Any) -> None { playerName = e.target.value; }}
                                 />
                             </div>
-                            
-                            {!createdGameCode ? 
-                                <Button 
-                                    onClick={handle_create_game}
-                                    disabled={isLoading}
-                                    className="w-full"
-                                >
-                                    {isLoading ? "Creating..." : "Create Game"}
-                                </Button>
-                            :
-                                <div className="space-y-4">
-                                    <Alert className="border-primary">
-                                        <AlertDescription>
-                                            <div className="space-y-2">
-                                                <p>Game created successfully!</p>
-                                                <div className="text-center">
-                                                    <Badge variant="outline" className="text-2xl p-2 font-mono">
-                                                        {createdGameCode}
-                                                    </Badge>
-                                                </div>
-                                                <p className="text-sm">Share this code with your opponent</p>
-                                            </div>
-                                        </AlertDescription>
-                                    </Alert>
-                                    
-                                    <Button 
-                                        onClick={handle_start_camera}
-                                        className="w-full"
-                                        variant="default"
-                                    >
-                                        Start Camera Setup
-                                    </Button>
-                                </div>
-                            }
+                            {render_create_section()}
                         </CardContent>
                     </Card>
                 </TabsContent>

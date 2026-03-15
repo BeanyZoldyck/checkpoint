@@ -164,9 +164,9 @@ cl {
             >
                 {ranks().map(lambda(rank: str, rank_index: int) -> JsxElement {
                     return files().map(lambda(file: str, file_index: int) -> JsxElement {
-                        has square: str = f"{file}{rank}";
-                        has piece: str = (props.position[square] if props.position else "") or "";
-                        has is_drag_target: bool = isDragging and draggedSquare != square;
+                        square = f"{file}{rank}";
+                        piece = (props.position[square] if props.position else "") or "";
+                        is_drag_target = isDragging and draggedSquare != square;
                         
                         return <div
                             key={square}

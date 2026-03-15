@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint - Digital Player</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>♟️ Checkpoint</h1>
+            <p>Play chess with someone using a physical board!</p>
+        </header>
+
+        <!-- Game Join Section -->
+        <div id="joinSection" class="section active">
+            <div class="join-card">
+                <h2>Join a Game</h2>
+                <p>Enter the 6-character code from the physical player:</p>
+                <form id="joinForm">
+                    <input 
+                        type="text" 
+                        id="joinCode" 
+                        placeholder="ABC123" 
+                        maxlength="6"
+                        pattern="[A-Z0-9]{6}"
+                        required
+                        autocomplete="off"
+                    >
+                    <button type="submit">Join Game</button>
+                </form>
+                <div id="joinError" class="error hidden"></div>
+            </div>
+        </div>
+
+        <!-- Game Setup Section -->
+        <div id="setupSection" class="section">
+            <div class="setup-card">
+                <h2>Setting up the game...</h2>
+                <div class="status-indicator">
+                    <div class="status-item">
+                        <span class="status-icon" id="connectedIcon">⏳</span>
+                        <span>Connected to game</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon" id="calibrationIcon">⏳</span>
+                        <span>Physical player is calibrating camera</span>
+                    </div>
+                </div>
+                <p id="setupMessage">Waiting for the physical player to set up their camera...</p>
+            </div>
+        </div>
+
+        <!-- Active Game Section -->
+        <div id="gameSection" class="section">
+            <div class="game-layout">
+                <!-- Game Info -->
+                <div class="game-info">
+                    <div class="player-info">
+                        <div class="player you">
+                            <span class="player-color" id="yourColor">⚪</span>
+                            <span>You (Digital Player)</span>
+                            <span class="connection-status connected">🟢</span>
+                        </div>
+                        <div class="player opponent">
+                            <span class="player-color" id="opponentColor">⚫</span>
+                            <span>Opponent (Physical Board)</span>
+                            <span class="connection-status" id="opponentStatus">🟢</span>
+                        </div>
+                    </div>
+                    
+                    <div class="turn-indicator">
+                        <div id="turnStatus" class="turn-status">Your turn!</div>
+                    </div>
+
+                    <div class="move-history">
+                        <h3>Move History</h3>
+                        <div id="movesList" class="moves-list"></div>
+                    </div>
+                </div>
+
+                <!-- Chessboard -->
+                <div class="board-container">
+                    <div id="board" class="chessboard"></div>
+                    <div class="board-controls">
+                        <button id="flipBoard" class="control-btn">🔄 Flip Board</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Over Section -->
+        <div id="gameOverSection" class="section">
+            <div class="game-over-card">
+                <h2 id="gameOverTitle">Game Over!</h2>
+                <p id="gameOverMessage"></p>
+                <button id="newGameBtn" class="primary-btn">Start New Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Error</h3>
+            <p id="errorMessage"></p>
+            <button id="closeErrorBtn">OK</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://unpkg.com/chess.js@0.10.3/chess.js"></script>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1691.0.min.js"></script>
+    <script src="config.js"></script>
+    <script src="chess-appsync.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

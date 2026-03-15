@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint - Physical Board</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>♟️ Checkpoint</h1>
+            <p>Physical Board Camera</p>
+        </header>
+
+        <!-- Create Game Section -->
+        <div id="createSection" class="section active">
+            <div class="create-card">
+                <h2>Set Up Your Chess Game</h2>
+                <p>Choose your color and create a game for your opponent to join:</p>
+                
+                <div class="color-selection">
+                    <label class="color-option">
+                        <input type="radio" name="playerColor" value="WHITE" checked>
+                        <div class="color-display">
+                            <span class="piece-icon">♔</span>
+                            <span>Play as White</span>
+                        </div>
+                    </label>
+                    <label class="color-option">
+                        <input type="radio" name="playerColor" value="BLACK">
+                        <div class="color-display">
+                            <span class="piece-icon">♚</span>
+                            <span>Play as Black</span>
+                        </div>
+                    </label>
+                </div>
+                
+                <button id="createGameBtn" class="primary-btn">Create Game</button>
+                <div id="createError" class="error hidden"></div>
+            </div>
+        </div>
+
+        <!-- Game Code Section -->
+        <div id="codeSection" class="section">
+            <div class="code-card">
+                <h2>Game Created!</h2>
+                <p>Share this code with your opponent:</p>
+                
+                <div class="join-code-display">
+                    <span id="gameJoinCode" class="join-code">------</span>
+                    <button id="copyCodeBtn" class="copy-btn">📋 Copy</button>
+                </div>
+                
+                <div class="waiting-status">
+                    <div class="status-indicator">
+                        <span class="spinner"></span>
+                        <span>Waiting for opponent to join...</span>
+                    </div>
+                </div>
+                
+                <p class="instruction">Once your opponent joins, you'll need to calibrate the camera.</p>
+            </div>
+        </div>
+
+        <!-- Camera Setup Section -->
+        <div id="cameraSection" class="section">
+            <div class="camera-setup">
+                <h2>Set Up Camera</h2>
+                <p>Position your phone to capture the entire chessboard:</p>
+                
+                <div class="camera-container">
+                    <video id="cameraPreview" autoplay playsinline></video>
+                    <div id="boardOverlay" class="board-overlay">
+                        <div class="corner-marker top-left"></div>
+                        <div class="corner-marker top-right"></div>
+                        <div class="corner-marker bottom-left"></div>
+                        <div class="corner-marker bottom-right"></div>
+                    </div>
+                </div>
+                
+                <div class="camera-instructions">
+                    <div class="instruction-item">
+                        <span class="check-icon">✅</span>
+                        <span>Entire board visible in frame</span>
+                    </div>
+                    <div class="instruction-item">
+                        <span class="check-icon">✅</span>
+                        <span>Good lighting (no shadows on board)</span>
+                    </div>
+                    <div class="instruction-item">
+                        <span class="check-icon">✅</span>
+                        <span>Camera stable (use a tripod or stand)</span>
+                    </div>
+                </div>
+                
+                <div class="camera-controls">
+                    <button id="calibrateBtn" class="primary-btn">Start Calibration</button>
+                    <button id="retryPermissionBtn" class="secondary-btn hidden">Retry Camera Permission</button>
+                </div>
+                
+                <div id="cameraError" class="error hidden"></div>
+            </div>
+        </div>
+
+        <!-- Calibration Section -->
+        <div id="calibrationSection" class="section">
+            <div class="calibration-setup">
+                <h2>Board Calibration</h2>
+                <p>Tap the corners of your chessboard in the camera view:</p>
+                
+                <div class="calibration-progress">
+                    <div class="progress-step active" data-step="1">
+                        <span>1</span>
+                        <span>Top-Left</span>
+                    </div>
+                    <div class="progress-step" data-step="2">
+                        <span>2</span>
+                        <span>Top-Right</span>
+                    </div>
+                    <div class="progress-step" data-step="3">
+                        <span>3</span>
+                        <span>Bottom-Right</span>
+                    </div>
+                    <div class="progress-step" data-step="4">
+                        <span>4</span>
+                        <span>Bottom-Left</span>
+                    </div>
+                </div>
+                
+                <div class="camera-container">
+                    <video id="calibrationPreview" autoplay playsinline></video>
+                    <canvas id="calibrationCanvas" class="calibration-overlay"></canvas>
+                </div>
+                
+                <div class="calibration-controls">
+                    <button id="resetCalibrationBtn" class="secondary-btn">Reset</button>
+                    <button id="completeCalibrationBtn" class="primary-btn" disabled>Complete Setup</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Game Section -->
+        <div id="gameSection" class="section">
+            <div class="game-layout">
+                <!-- Game Status -->
+                <div class="game-status">
+                    <div class="status-row">
+                        <div class="player-indicator">
+                            <span id="yourColorIndicator" class="color-icon">♔</span>
+                            <span>You</span>
+                        </div>
+                        <div class="turn-status">
+                            <span id="turnIndicator" class="turn-text">Your turn</span>
+                        </div>
+                        <div class="opponent-indicator">
+                            <span id="opponentColorIndicator" class="color-icon">♚</span>
+                            <span>Opponent</span>
+                            <span id="opponentConnectionStatus" class="connection-dot">🟢</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Camera Feed -->
+                <div class="camera-feed">
+                    <video id="gamePreview" autoplay playsinline muted></video>
+                    <div class="feed-overlay">
+                        <div class="capture-indicator" id="captureIndicator">
+                            <span class="capture-dot"></span>
+                            <span>Monitoring...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Move Display -->
+                <div class="move-display">
+                    <div id="opponentMoveCard" class="move-card hidden">
+                        <h3>Opponent's Move:</h3>
+                        <div class="move-details">
+                            <span id="opponentMoveSan" class="move-san">Nf3</span>
+                            <div class="move-instruction">
+                                <span id="opponentMoveFrom" class="square">e2</span>
+                                <span class="arrow">→</span>
+                                <span id="opponentMoveTo" class="square">e4</span>
+                            </div>
+                        </div>
+                        <p class="move-prompt">Make this move on your physical board, then make your move!</p>
+                    </div>
+                    
+                    <div id="moveDetectedCard" class="move-card success hidden">
+                        <h3>Move Detected!</h3>
+                        <div class="move-details">
+                            <span id="detectedMoveSan" class="move-san">e4</span>
+                        </div>
+                        <p class="move-prompt">Great! Waiting for opponent's response...</p>
+                    </div>
+                </div>
+
+                <!-- Game Controls -->
+                <div class="game-controls">
+                    <button id="pauseGameBtn" class="control-btn">⏸️ Pause Game</button>
+                    <button id="settingsBtn" class="control-btn">⚙️ Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Camera Settings</h3>
+                    <button id="closeSettingsBtn" class="close-btn">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label>Capture Interval:</label>
+                        <select id="captureInterval">
+                            <option value="2000">2 seconds</option>
+                            <option value="3000" selected>3 seconds</option>
+                            <option value="5000">5 seconds</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label>
+                            <input type="checkbox" id="debugMode">
+                            Debug Mode (show detection info)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="saveSettingsBtn" class="primary-btn">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1691.0.min.js"></script>
+    <script src="../digital-player/config.js"></script>
+    <script src="../digital-player/chess-appsync.js"></script>
+    <script src="camera-manager.js"></script>
+    <script src="board-calibration.js"></script>
+    <script src="physical-app.js"></script>
+</body>
+</html>

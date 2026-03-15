@@ -1,0 +1,138 @@
+type Game {
+  id: ID!
+  joinCode: String!
+  status: GameStatus!
+  currentFEN: String!
+  currentTurn: PlayerColor!
+  physicalPlayerColor: PlayerColor!
+  digitalPlayerColor: PlayerColor!
+  moveHistory: [String!]!
+  physicalPlayerConnected: Boolean!
+  digitalPlayerConnected: Boolean!
+  lastImageS3Key: String
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type Move {
+  id: ID!
+  gameId: ID!
+  from: String!
+  to: String!
+  piece: String!
+  san: String!
+  fen: String!
+  playerColor: PlayerColor!
+  moveNumber: Int!
+  timestamp: AWSDateTime!
+}
+
+type GameEvent {
+  type: GameEventType!
+  gameId: ID!
+  move: Move
+  gameState: Game
+  message: String
+  timestamp: AWSDateTime!
+}
+
+enum GameStatus {
+  WAITING_FOR_DIGITAL_PLAYER
+  WAITING_FOR_PHYSICAL_PLAYER
+  CALIBRATING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ERROR
+}
+
+enum PlayerColor {
+  WHITE
+  BLACK
+}
+
+enum GameEventType {
+  MOVE_MADE
+  PLAYER_CONNECTED
+  PLAYER_DISCONNECTED
+  GAME_STATE_UPDATED
+  ERROR_OCCURRED
+  CALIBRATION_COMPLETE
+}
+
+type Query {
+  getGame(id: ID!): Game
+  getGameByJoinCode(joinCode: String!): Game
+}
+
+type Mutation {
+  # Create new game (physical player)
+  createGame(physicalPlayerColor: PlayerColor!): Game!
+  
+  # Join game (digital player)
+  joinGame(joinCode: String!): Game!
+  
+  # Digital player makes a move
+  makeDigitalMove(
+    gameId: ID!
+    from: String!
+    to: String!
+    promotion: String
+  ): Move!
+  
+  # Computer vision detected a physical move
+  recordPhysicalMove(
+    gameId: ID!
+    from: String!
+    to: String!
+    piece: String!
+    fen: String!
+  ): Move!
+  
+  # Update player connection status
+  updatePlayerConnection(
+    gameId: ID!
+    playerType: String!
+    connected: Boolean!
+  ): Game!
+  
+  # Upload board image for processing
+  uploadBoardImage(
+    gameId: ID!
+    imageData: String!
+  ): String!
+  
+  # Complete board calibration
+  completeCalibration(
+    gameId: ID!
+    calibrationData: String!
+  ): Game!
+  
+  # Register push token for notifications
+  registerPushToken(
+    gameId: ID!
+    playerId: ID!
+    pushToken: String!
+    playerColor: PlayerColor
+  ): PushTokenResponse!
+}
+
+type PushTokenResponse {
+  success: Boolean!
+  message: String
+  error: String
+}
+
+type Subscription {
+  # Subscribe to all events for a specific game
+  onGameEvent(gameId: ID!): GameEvent
+    @aws_subscribe(mutations: ["makeDigitalMove", "recordPhysicalMove", "updatePlayerConnection", "completeCalibration"])
+  
+  # Subscribe only to moves for a game
+  onMovesMade(gameId: ID!): Move
+    @aws_subscribe(mutations: ["makeDigitalMove", "recordPhysicalMove"])
+  
+  # Subscribe to game state changes
+  onGameStateChanged(gameId: ID!): Game
+    @aws_subscribe(mutations: ["updatePlayerConnection", "joinGame", "completeCalibration"])
+}

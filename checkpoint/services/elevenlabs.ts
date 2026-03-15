@@ -6,7 +6,7 @@
 // ============================================================================
 
 import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { ELEVENLABS_CONFIG } from './config';
 
@@ -109,7 +109,7 @@ export async function speakMove(san: string): Promise<void> {
     const base64 = arrayBufferToBase64(arrayBuffer);
     const fileUri = `${FileSystem.cacheDirectory}move_${Date.now()}.mp3`;
     await FileSystem.writeAsStringAsync(fileUri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: 'base64' as any,
     });
 
     // 3. Configure audio session and play

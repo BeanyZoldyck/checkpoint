@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { configureAWS, connectPhysicalPlayer, completeCalibration, subscribeToMoves, type GameMove } from '@/services/api';
+import { configureAWS, connectPhysicalPlayer, completeCalibration, subscribeToMoves, subscribeToGameReset, type GameMove } from '@/services/api';
 import { getAppSyncConfig } from '@/services/config';
 import { speakMove } from '@/services/elevenlabs';
 
@@ -95,7 +95,14 @@ export default function MoveScreen() {
       (s) => setStatus(s === 'connected' ? 'connected' : 'disconnected'),
     );
 
-    return unsubscribe;
+    const unsubscribeReset = subscribeToGameReset(() => {
+      setMoves([]);
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeReset();
+    };
   }, []);
 
   const statusColor = status === 'connected' ? '#4ade80' : status === 'connecting' ? '#facc15' : '#f87171';

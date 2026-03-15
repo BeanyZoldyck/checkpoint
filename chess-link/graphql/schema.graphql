@@ -122,4 +122,8 @@ type Subscription {
   # Subscribe to the current game events
   onGameEvent: Move
     @aws_subscribe(mutations: ["makeDigitalMove", "recordPhysicalMove"])
+
+  # Subscribe to game reset events
+  onGameReset: Game
+    @aws_subscribe(mutations: ["resetGame"])
 }

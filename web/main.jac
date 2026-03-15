@@ -30,22 +30,22 @@ cl {
         }
 
         def get_game_code() -> str {
-            if gameInfo.get("gameCode") { return gameInfo["gameCode"]; }
+            if gameInfo?["gameCode"] { return gameInfo["gameCode"]; }
             return "session";
         }
 
         def get_player_name() -> str {
-            if gameInfo.get("playerName") { return gameInfo["playerName"]; }
+            if gameInfo?["playerName"] { return gameInfo["playerName"]; }
             return "Player";
         }
 
         def get_player_color() -> str {
-            if gameInfo.get("playerColor") { return gameInfo["playerColor"]; }
+            if gameInfo?["playerColor"] { return gameInfo["playerColor"]; }
             return "white";
         }
 
         def get_game_type() -> str {
-            if gameInfo.get("gameType") { return gameInfo["gameType"]; }
+            if gameInfo?["gameType"] { return gameInfo["gameType"]; }
             return "digital";
         }
 

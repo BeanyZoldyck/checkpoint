@@ -85,6 +85,23 @@ cl {
     #
     # After the socket opens we send connection_init, then start a subscription.
     # AppSync fires data messages whenever makeDigitalMove or recordPhysicalMove runs.
+    def:pub getMoveComment(san: str, fen: str) -> Any {
+        comments = [
+            f"Interesting choice with {san} — let's see how it plays out.",
+            f"{san} puts pressure on the center.",
+            f"A solid move: {san}.",
+            f"{san} — developing nicely.",
+            f"Bold! {san} opens up the position.",
+            f"{san} keeps things balanced.",
+            f"Good tempo with {san}.",
+            f"{san} — the plot thickens."
+        ];
+        idx = Math.floor(Math.random() * comments.length);
+        return Reflect.construct(Promise, [lambda(resolve: Any, _reject: Any) -> None {
+            setTimeout(lambda() -> None { resolve(comments[idx]); }, 300);
+        }]);
+    }
+
     def:pub subscribeToMoves(onMove: callable, onStatusChange: callable = None) -> callable {
         SUBSCRIPTION_QUERY = "subscription OnGameEvent { onGameEvent { id gameId from to piece san fen playerColor moveNumber timestamp } }";
 
@@ -95,7 +112,7 @@ cl {
 
         ws_url = _ws_endpoint() + "?header=" + header_b64 + "&payload=" + payload_b64;
 
-        ws = new WebSocket(ws_url, ["graphql-ws"]);
+        ws = Reflect.construct(WebSocket, [ws_url, ["graphql-ws"]]);
         subId = "sub-moves-1";
         stopped = False;
 
@@ -130,13 +147,12 @@ cl {
             } elif t == "start_ack" {
                 if onStatusChange != None { onStatusChange("connected"); }
             } elif t == "data" {
-                move = msg.get("payload", {}).get("data", {}).get("onGameEvent");
-                if move and move.get("from") and move.get("to") {
+                move = msg?["payload"]?["data"]?["onGameEvent"];
+                if move and move?["from"] and move?["to"] {
                     onMove(move);
                 }
             } elif t == "ka" {
                 # keep-alive — ignore
-                pass;
             } elif t == "connection_error" or t == "error" {
                 print("AppSync WS error:", JSON.stringify(msg));
                 if onStatusChange != None { onStatusChange("disconnected"); }

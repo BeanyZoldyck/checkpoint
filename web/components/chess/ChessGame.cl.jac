@@ -13,7 +13,8 @@ cl import from "...lib.api" {
     recordPhysicalMove,
     updatePlayerConnection,
     subscribeToMoves,
-    resetGame
+    resetGame,
+    getMoveComment
 }
 
 cl {
@@ -39,10 +40,25 @@ cl {
         [isSendingMove, setIsSendingMove] = useState(False);
         [isStartingGame, setIsStartingGame] = useState(False);
         [isResetting, setIsResetting] = useState(False);
+        [agentComment, setAgentComment] = useState("");
 
         unsubRef = useRef(None);
-        stateRef = useRef({"game": None, "moveHistory": [], "playerColor": "white"});
-        stateRef.current = {"game": game, "moveHistory": moveHistory, "playerColor": playerColor};
+        # Set of move IDs that this client sent — used to ignore subscription echoes
+        # of our own moves without filtering by color (which breaks when the physical
+        # player's color happens to match the digital player's color).
+        sentMoveIdsRef = useRef(Reflect.construct(Set, []));
+        stateRef = useRef({"game": None, "moveHistory": [], "playerColor": "white", "sentMoveIds": sentMoveIdsRef.current});
+        stateRef.current = {"game": game, "moveHistory": moveHistory, "playerColor": playerColor, "sentMoveIds": sentMoveIdsRef.current};
+
+        useEffect(lambda() -> None {
+            if len(moveHistory) > 0 {
+                last = moveHistory[len(moveHistory) - 1];
+                setAgentComment("...");
+                getMoveComment(last["san"], "").then(lambda(c: str) -> None {
+                    setAgentComment(c);
+                });
+            }
+        }, [moveHistory]);
 
         def refresh_position(g: Any) -> None {
             if g {
@@ -57,8 +73,18 @@ cl {
         def apply_incoming_move(move: dict) -> None {
             cur = stateRef.current;
             if not cur["game"] { return; }
+            # Skip echoes of moves this client sent (identified by move ID).
+            # We intentionally do NOT filter by playerColor here: the physical player's
+            # color may match the digital player's color, causing real opponent moves to
+            # be silently dropped.
+            move_id = move?["id"];
+            if move_id {
+                if cur["sentMoveIds"].has(move_id) {
+                    cur["sentMoveIds"].delete(move_id);
+                    return;
+                }
+            }
             move_color = (move["playerColor"] if move["playerColor"] else "").toLowerCase();
-            if move_color == cur["playerColor"] { return; }
 
             result = cur["game"].make_move({"from": move["from"], "to": move["to"]});
             if result["success"] {
@@ -112,8 +138,8 @@ cl {
                         # Auto-activate the game so moves can be sent immediately
                         setStatusMessage("Activating game...");
                         completeCalibration().then(lambda(result: Any) -> None {
-                            fen = result["currentFEN"] if result and result.get("currentFEN") else gameData["currentFEN"];
-                            turn_raw = result["currentTurn"] if result and result.get("currentTurn") else "WHITE";
+                            fen = result?["currentFEN"] if result else gameData["currentFEN"];
+                            turn_raw = result?["currentTurn"] if result else "WHITE";
                             apply_active_state("ACTIVE", fen, turn_raw);
                         }).catch(lambda(err: Any) -> None {
                             # completeCalibration failed — still set ACTIVE locally so the board is usable
@@ -155,7 +181,8 @@ cl {
             setCurrentTurn(opp_turn);
             setStatusMessage("Waiting for opponent's move...");
             setIsSendingMove(True);
-            makeDigitalMove("e2", "e4", None).then(lambda(r: Any) -> None {
+             makeDigitalMove("e2", "e4", None).then(lambda(r: Any) -> None {
+                if r and r?["id"] { sentMoveIdsRef.current.add(r["id"]); }
                 setIsSendingMove(False);
             }).catch(lambda(err: Any) -> None {
                 setIsSendingMove(False);
@@ -219,7 +246,7 @@ cl {
             result = game.make_move({
                 "from": move["from"],
                 "to": move["to"],
-                "promotion": move["promotion"] if move.get("promotion") else "q"
+                "promotion": move["promotion"] if move?["promotion"] else "q"
             });
 
             if not result["success"] {
@@ -248,8 +275,9 @@ cl {
             }
 
             setIsSendingMove(True);
-            prom = move["promotion"] if move.get("promotion") else None;
+            prom = move?["promotion"] if move?["promotion"] else None;
             makeDigitalMove(move["from"], move["to"], prom).then(lambda(r: Any) -> None {
+                if r and r?["id"] { sentMoveIdsRef.current.add(r["id"]); }
                 setIsSendingMove(False);
             }).catch(lambda(err: Any) -> None {
                 setIsSendingMove(False);
@@ -273,7 +301,7 @@ cl {
                     refresh_position(game);
                 }
                 # Use the turn returned by the server; fall back to current state.
-                serverTurn = (result["currentTurn"] if result and result.get("currentTurn") else None);
+                serverTurn = result?["currentTurn"] if result else None;
                 activeTurn = serverTurn.toLowerCase() if serverTurn else currentTurn;
                 setCurrentTurn(activeTurn);
                 cur_color = stateRef.current["playerColor"];
@@ -404,6 +432,8 @@ cl {
             return items;
         }
 
+        is_interactive = is_my_turn() and gameStatus == "ACTIVE" and not isSendingMove;
+
         return <div className="flex flex-col lg:flex-row gap-6 p-4 max-w-7xl mx-auto">
             <div className="flex-1 space-y-4">
                 <Card>
@@ -440,20 +470,20 @@ cl {
                         highlightSquares={highlightedSquares}
                         showCoordinates={True}
                         size={480}
-                        interactive={is_my_turn() and gameStatus == "ACTIVE" and not isSendingMove}
+                        interactive={is_interactive}
                     />
                 </div>
 
                 <Card>
                     <CardContent className="pt-6">
                         <div className="flex flex-wrap gap-2 justify-center">
-                            {gameStatus != "ACTIVE" and <Button
+                            {<Button
                                 variant="default"
                                 onClick={handle_start_game}
                                 disabled={isStartingGame}
                             >
                                 {"Starting..." if isStartingGame else "Start Game"}
-                            </Button>}
+                            </Button> if gameStatus != "ACTIVE" else <></>}
                             <Button
                                 variant="secondary"
                                 onClick={lambda() -> None { handle_test_e4(); }}
@@ -551,6 +581,15 @@ cl {
                         </div>
                     </CardContent>
                 </Card>
+
+                {<Card>
+                    <CardHeader>
+                        <CardTitle>Agent</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm italic text-muted-foreground">{agentComment}</p>
+                    </CardContent>
+                </Card> if agentComment else <></>}
             </div>
         </div>;
     }

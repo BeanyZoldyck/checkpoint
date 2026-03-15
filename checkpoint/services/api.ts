@@ -367,6 +367,64 @@ export function subscribeToMoves(
 }
 
 // ---------------------------------------------------------------------------
+// Subscription — game reset
+// ---------------------------------------------------------------------------
+
+const ON_GAME_RESET_SUBSCRIPTION = /* GraphQL */ `
+  subscription OnGameReset {
+    onGameReset {
+      id
+      status
+      currentFEN
+      currentTurn
+      moveHistory
+      updatedAt
+    }
+  }
+`;
+
+/**
+ * Subscribe to resetGame events fired from the web client.
+ * Calls onReset whenever the board is reset so the mobile app can clear
+ * its local notation/move list.
+ */
+export function subscribeToGameReset(
+  onReset: () => void,
+  onStatusChange?: (status: 'connected' | 'disconnected') => void,
+): () => void {
+  if (isStubMode()) {
+    console.log('[STUB] subscribeToGameReset — no-op');
+    onStatusChange?.('connected');
+    return () => onStatusChange?.('disconnected');
+  }
+
+  try {
+    onStatusChange?.('connected');
+
+    const subscription = (getClient().graphql({
+      query: ON_GAME_RESET_SUBSCRIPTION,
+    }) as any).subscribe({
+      next: (_data: any) => {
+        onReset();
+      },
+      error: (err: any) => {
+        console.error('subscribeToGameReset error:', err);
+        onStatusChange?.('disconnected');
+      },
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      onStatusChange?.('disconnected');
+    };
+  } catch (err) {
+    console.error('Error setting up subscribeToGameReset:', err);
+    onStatusChange?.('disconnected');
+    return () => {};
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Legacy exports kept for backward compatibility with old index.tsx code
 // (they are no longer used by the new screens but removing them would break
 // any remaining imports during the transition)

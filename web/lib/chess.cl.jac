@@ -35,7 +35,7 @@ cl {
         }
 
         def make_move(move: dict) -> dict {
-            prom = move["promotion"] if move.get("promotion") else "q";
+            prom = move["promotion"] if move?["promotion"] else "q";
             chess_move = self.engine.move({
                 "from": move["from"],
                 "to": move["to"],

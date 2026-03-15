@@ -1,0 +1,35 @@
+## Reset Board Mutation Request Template
+## Updates the game state to reset the board
+
+{
+  "version": "2017-02-28",
+  "operation": "UpdateItem",
+  "key": {
+    "gameId": $util.dynamodb.toDynamoDBJson($ctx.args.input.gameId)
+  },
+  "update": {
+    "expression": "SET #updatedAt = :updatedAt, #state = :state, #lastMove = :lastMove, #resetType = :resetType, #resetBy = :resetBy",
+    "expressionNames": {
+      "#updatedAt": "updatedAt",
+      "#state": "state",
+      "#lastMove": "lastMove",
+      "#resetType": "resetType",
+      "#resetBy": "resetBy"
+    },
+    "expressionValues": {
+      ":updatedAt": $util.dynamodb.toDynamoDBJson($util.time.nowISO8601()),
+      ":resetType": $util.dynamodb.toDynamoDBJson($ctx.args.input.resetType),
+      ":resetBy": $util.dynamodb.toDynamoDBJson($ctx.args.input.playerId),
+      #if($ctx.args.input.resetType == "FULL_RESET")
+        ":state": $util.dynamodb.toDynamoDBJson("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+        ":lastMove": $util.dynamodb.toDynamoDBJson(null)
+      #elseif($ctx.args.input.resetType == "CLEAR_BOARD")
+        ":state": $util.dynamodb.toDynamoDBJson("8/8/8/8/8/8/8/8 w - - 0 1"),
+        ":lastMove": $util.dynamodb.toDynamoDBJson(null)
+      #else
+        ":state": $util.dynamodb.toDynamoDBJson("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+        ":lastMove": $util.dynamodb.toDynamoDBJson(null)
+      #end
+    }
+  }
+}

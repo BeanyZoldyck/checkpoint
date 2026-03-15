@@ -12,6 +12,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.checkpoint.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -31,14 +32,6 @@
         "expo-camera",
         {
           "cameraPermission": "Checkpoint needs camera access to capture your chessboard."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#ffffff",
-          "sounds": ["./assets/sounds/notification.wav"]
         }
       ],
       [

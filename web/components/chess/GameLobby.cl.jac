@@ -97,7 +97,7 @@ cl {
 
         return <div className="max-w-2xl mx-auto p-6 space-y-6">
             <div className="text-center space-y-4">
-                <h1 className="text-4xl font-bold text-primary">ChessLink</h1>
+                <h1 className="text-4xl font-bold text-primary">Checkpoint</h1>
                 <p className="text-lg text-muted-foreground">
                     Connect physical and digital chess players
                 </p>

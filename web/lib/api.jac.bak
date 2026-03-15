@@ -1,0 +1,122 @@
+"""Checkpoint API - AWS AppSync integration. Implemented in Jac and uses Amplify from node."""
+cl import from "aws-amplify" { Amplify }
+cl import from "aws-amplify/api" { generateClient }
+
+has _config: dict = {
+    "aws_appsync_graphqlEndpoint": "https://your-appsync-endpoint.appsync-api.region.amazonaws.com/graphql",
+    "aws_appsync_region": "us-east-1",
+    "aws_appsync_authenticationType": "API_KEY",
+    "aws_appsync_apiKey": "your-api-key-here"
+};
+has _client = None;
+has _stub_mode: bool = True;
+
+def _get_client() -> Any {
+    if _client == None {
+        _client = generateClient();
+    }
+    return _client;
+}
+
+def:pub configureAWS(cfg: Any = None) -> None {
+    if cfg != None {
+        _config = cfg;
+    }
+    Amplify.configure({
+        "API": {
+            "GraphQL": {
+                "endpoint": _config["aws_appsync_graphqlEndpoint"],
+                "region": _config["aws_appsync_region"],
+                "defaultAuthMode": "apiKey",
+                "apiKey": _config["aws_appsync_apiKey"]
+            }
+        }
+    });
+    _stub_mode = "your-appsync-endpoint" in _config["aws_appsync_graphqlEndpoint"];
+}
+
+def:pub resetBoard(gameId: str, playerId: str, resetType: str = "FULL_RESET") -> Any {
+    if _stub_mode {
+        print("[STUB] Would reset board:", gameId, playerId, resetType);
+        return Promise(lambda(resolve, reject) -> None {
+            setTimeout(lambda() -> None {
+                resolve({"success": True, "gameId": gameId, "message": "Board reset with type: " + resetType});
+            }, 800);
+        });
+    }
+    has mutation = """
+      mutation ResetBoard($input: ResetBoardInput!) {
+        resetBoard(input: $input) { success gameId message error }
+      }
+    """;
+    return _get_client().graphql({
+        "query": mutation,
+        "variables": {
+            "input": {
+                "gameId": gameId,
+                "playerId": playerId,
+                "resetType": resetType
+            }
+        }
+    }).then(lambda(result: Any) -> Any {
+        return result["data"]["resetBoard"];
+    }).catch(lambda(err: Any) -> Any {
+        print("Error resetting board:", err);
+        return {"success": False, "gameId": gameId, "error": "Failed to reset board"};
+    });
+}
+
+def:pub subscribeToResetEvents(gameId: str, onReset: callable, onStatusChange: callable = None) -> callable {
+    if _stub_mode {
+        print("[STUB] Would subscribe to reset events for game:", gameId);
+        if onStatusChange != None {
+            onStatusChange("connected");
+        }
+        return lambda() -> None {
+            if onStatusChange != None {
+                onStatusChange("disconnected");
+            }
+        };
+    }
+    try {
+        if onStatusChange != None {
+            onStatusChange("connected");
+        }
+        has subscription = """
+          subscription OnBoardReset($gameId: ID!) {
+            onBoardReset(gameId: $gameId) { success gameId message error }
+          }
+        """;
+        has sub = _get_client().graphql({
+            "query": subscription,
+            "variables": {"gameId": gameId}
+        }).subscribe({
+            "next": lambda(data: Any) -> None {
+                has resetData = data.get("data", {}).get("onBoardReset");
+                if resetData != None {
+                    onReset(resetData);
+                }
+            },
+            "error": lambda(err: Any) -> None {
+                print("Reset subscription error:", err);
+                if onStatusChange != None {
+                    onStatusChange("disconnected");
+                }
+            }
+        });
+        return lambda() -> None {
+            sub.unsubscribe();
+            if onStatusChange != None {
+                onStatusChange("disconnected");
+            }
+        };
+    } catch err {
+        print("Error setting up reset subscription:", err);
+        if onStatusChange != None {
+            onStatusChange("disconnected");
+        }
+        return lambda() -> None { };
+    }
+}
+
+configureAWS();

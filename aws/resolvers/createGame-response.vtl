@@ -1,0 +1,13 @@
+## Create Game Mutation Response Template
+## Returns the created game information
+
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+
+{
+  "gameId": "$ctx.result.gameId",
+  "joinCode": "$ctx.result.joinCode", 
+  "playerId": "$ctx.args.playerId",
+  "playerRole": "WHITE"
+}

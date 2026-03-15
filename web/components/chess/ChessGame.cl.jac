@@ -5,7 +5,7 @@ cl import from "..ui.card" { Card, CardContent, CardHeader, CardTitle }
 cl import from "..ui.badge" { Badge }
 cl import from "..ui.alert" { Alert, AlertTitle, AlertDescription }
 cl import from "..ui.separator" { Separator }
-cl import from "...lib.chess" { create_game, get_starting_position }
+cl import from "...lib.simple_board" { create_board, get_empty_position }
 
 cl {
     def:pub ChessGame(props: {
@@ -15,131 +15,90 @@ cl {
         gameType?: str,  # "digital" or "physical"
         onLeaveGame?: Function
     }) -> JsxElement {
-        [game, setGame] = useState(None);
+        [board, setBoard] = useState(None);
         [position, setPosition] = useState({});
-        [gameStatus, setGameStatus] = useState({});
         [moveHistory, setMoveHistory] = useState([]);
         [lastMove, setLastMove] = useState({});
         [highlightedSquares, setHighlightedSquares] = useState([]);
         [isConnected, setIsConnected] = useState(True);
         [opponentName, setOpponentName] = useState("Waiting...");
-        [statusMessage, setStatusMessage] = useState("Game starting...");
+        [statusMessage, setStatusMessage] = useState("Place pieces on the board!");
         [playerColor, setPlayerColor] = useState(props["playerColor"] or "white");
-        [mockConnection, setMockConnection] = useState({
-            "connected": True,
-            "gameState": "waiting_for_opponent"
-        });
+        [placementMode, setPlacementMode] = useState(True);
+        [selectedPieceType, setSelectedPieceType] = useState("wP");
 
         useEffect(lambda() -> None {
-            # Initialize game state
-            newGame = create_game(props["gameCode"]);
-            setGame(newGame);
-            newGame.set_player_color(playerColor);
-            setPosition(newGame.get_position());
-            setGameStatus(newGame.get_game_status());
+            # Initialize simple board
+            newBoard = create_board();
+            setBoard(newBoard);
+            setPosition(newBoard.get_position());
+            setStatusMessage("Click on squares to place pieces!");
             
-            # Mock opponent connection after 2 seconds
+            # Mock opponent connection after 2 seconds  
             setTimeout(lambda() -> None {
-                setMockConnection({"connected": True, "gameState": "active"});
                 if props["gameType"] == "physical" {
                     setOpponentName("Digital Player");
                 } else {
                     setOpponentName("Physical Player");
                 }
-                setStatusMessage(f"Connected! Playing as {playerColor}");
+                setStatusMessage(f"Ready to play as {playerColor}!");
                 setIsConnected(True);
             }, 2000);
         }, []);
 
         def handle_move(move: dict) -> None {
-            if not game or not game.is_my_turn() {
-                setStatusMessage("It's not your turn!");
+            if not board or placementMode {
+                setStatusMessage("Place pieces first or start the game!");
                 return;
             }
 
-            has move_result: dict;
-            move_result = game.make_move(move);
+            # Simple move - just move the piece from one square to another
+            success = board.move_piece(move["from"], move["to"]);
             
-            if move_result["success"] {
-                setPosition(game.get_position());
-                setGameStatus(game.get_game_status());
-                setMoveHistory(game.get_move_history());
+            if success {
+                setPosition(board.get_position());
                 setLastMove({
                     "from": move["from"],
                     "to": move["to"]
                 });
+                setStatusMessage(f"Moved piece from {move['from']} to {move['to']}");
                 
-                # Check for game ending conditions
-                if move_result["isCheckmate"] {
-                    setStatusMessage("Checkmate! You win!");
-                } elif move_result["isStalemate"] {
-                    setStatusMessage("Stalemate - Draw!");
-                } elif move_result["isDraw"] {
-                    setStatusMessage("Draw!");
-                } elif move_result["isCheck"] {
-                    setStatusMessage(f"Check! {move_result['san']}");
-                } else {
-                    setStatusMessage("Waiting for opponent...");
-                }
-
-                # Mock sending move to opponent
-                mock_send_move_to_opponent(move_result);
+                # Add to move history
+                newHistory = moveHistory.slice(0);
+                newHistory.push({
+                    "from": move["from"],
+                    "to": move["to"],
+                    "san": f"{move['from']}-{move['to']}"
+                });
+                setMoveHistory(newHistory);
             } else {
-                setStatusMessage(f"Invalid move: {move_result['error']}");
+                setStatusMessage("No piece to move!");
             }
         }
 
-        def mock_send_move_to_opponent(move_result: dict) -> None {
-            # Simulate opponent move after random delay (2-8 seconds)
-            has delay: int = 2000 + 3000;
+        def handle_place_piece(square: str) -> None {
+            if not board or not placementMode {
+                return;
+            }
 
-            setTimeout(lambda() -> None {
-                if game and not gameStatus["isGameOver"] {
-                    # Get random legal move for opponent
-                    has legal_moves: list = game.get_legal_moves();
-                    if legal_moves.length > 0 {
-                        has random_index: int = 0;
-                        if legal_moves.length > 1 {
-                            random_index = 1;
-                        }
-                        has random_move: dict = legal_moves[random_index];
-                        has opponent_result: dict = game.make_move({
-                            "from": random_move["from"],
-                            "to": random_move["to"],
-                            "promotion": random_move["promotion"]
-                        });
-                        
-                        if opponent_result["success"] {
-                            setPosition(game.get_position());
-                            setGameStatus(game.get_game_status());
-                            setMoveHistory(game.get_move_history());
-                            setLastMove({
-                                "from": random_move["from"],
-                                "to": random_move["to"]
-                            });
-                            
-                            if opponent_result["isCheckmate"] {
-                                setStatusMessage("Checkmate! You lose!");
-                            } elif opponent_result["isStalemate"] {
-                                setStatusMessage("Stalemate - Draw!");
-                            } elif opponent_result["isDraw"] {
-                                setStatusMessage("Draw!");
-                            } elif opponent_result["isCheck"] {
-                                setStatusMessage(f"Check! Opponent played {opponent_result['san']}");
-                            } else {
-                                setStatusMessage(f"Opponent played {opponent_result['san']}. Your turn!");
-                            }
-                        }
-                    }
-                }
-            }, delay);
+            # Check if square is empty or if we want to replace a piece
+            currentPiece = board.get_piece(square);
+            if currentPiece {
+                # Remove piece if clicking on occupied square
+                board.remove_piece(square);
+                setStatusMessage(f"Removed piece from {square}");
+            } else {
+                # Place selected piece type on empty square
+                board.place_piece(square, selectedPieceType);
+                setStatusMessage(f"Placed {selectedPieceType} on {square}");
+            }
+            
+            # Update position display
+            setPosition(board.get_position());
         }
 
         def handle_resign() -> None {
-            setStatusMessage("You resigned. Game over.");
-            has newStatus: dict = gameStatus;
-            newStatus["isGameOver"] = True;
-            setGameStatus(newStatus);
+            setStatusMessage("Game resigned.");
         }
 
         def handle_offer_draw() -> None {
@@ -181,23 +140,15 @@ cl {
         }
 
         def format_player_color() -> str {
-            return playerColor[0].toUpperCase() + playerColor[1:];
+            return playerColor.charAt(0).toUpperCase() + playerColor.slice(1);
         }
 
         def get_current_player_badge_variant() -> str {
-            if gameStatus["turn"] == playerColor {
-                return "default";
-            } else {
-                return "secondary";
-            }
+            return "default";  # Simplified
         }
 
         def get_opponent_badge_variant() -> str {
-            if gameStatus["turn"] != playerColor {
-                return "default";
-            } else {
-                return "secondary";
-            }
+            return "secondary";  # Simplified
         }
 
         def get_opponent_color() -> str {
@@ -209,41 +160,27 @@ cl {
         }
 
         def get_current_turn_text() -> str {
-            if gameStatus["turn"] == "w" {
-                return "White";
-            } else {
-                return "Black";
-            }
+            return "White's turn";  # Simplified since we don't track turns
         }
 
         def get_game_status_text() -> str {
-            if gameStatus["isCheckmate"] {
-                return "Checkmate";
-            } elif gameStatus["isStalemate"] {
-                return "Stalemate";
-            } elif gameStatus["isDraw"] {
-                return "Draw";
-            } elif gameStatus["isCheck"] {
-                return "Check";
-            } else {
-                return "In progress";
-            }
+            return "Placing pieces";  # Simplified status
         }
 
         def format_move_history() -> list {
             has formatted: list = [];
             has i: int = 0;
-            while i < moveHistory.length {
+            while i < len(moveHistory) {
                 has move_number: int = (i // 2) + 1;
                 has white_move: str = "";
-                if i < moveHistory.length {
+                if i < len(moveHistory) {
                     white_move = (moveHistory[i]["san"] if moveHistory[i] else "") or "";
                 }
                 has black_move: str = "";
-                if i + 1 < moveHistory.length {
+                if i + 1 < len(moveHistory) {
                     black_move = (moveHistory[i + 1]["san"] if moveHistory[i + 1] else "") or "";
                 }
-                formatted.push({
+                formatted.append({
                     "number": move_number,
                     "white": white_move,
                     "black": black_move
@@ -257,12 +194,12 @@ cl {
             has items: list = [];
             has formatted: list = format_move_history();
             has i: int = 0;
-            while i < formatted.length {
+            while i < len(formatted) {
                 has move: dict = formatted[i];
-                items.push(<div className="flex items-center gap-4 text-sm font-mono">
-                    <span className="w-6 text-muted-foreground">{move["number"]}.</span>
-                    <span className="w-12">{move["white"]}</span>
-                    <span className="w-12">{move["black"]}</span>
+                items.append(<div className="flex items-center gap-4 text-sm font-mono">
+                    <span className="w-6 text-muted-foreground">{move.number}.</span>
+                    <span className="w-12">{move.white}</span>
+                    <span className="w-12">{move.black}</span>
                 </div>);
                 i = i + 1;
             }
@@ -275,7 +212,7 @@ cl {
                     <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-lg">
-                                Game {props["gameCode"]}
+                                Game {props.gameCode}
                             </CardTitle>
                             <div className="flex items-center gap-2">
                                 <Badge variant={get_connection_badge_variant()}>
@@ -313,14 +250,14 @@ cl {
                             <Button
                                 variant="outline"
                                 onClick={handle_offer_draw}
-                                disabled={gameStatus["isGameOver"]}
+                                disabled={placementMode}
                             >
                                 Offer Draw
                             </Button>
                             <Button
                                 variant="destructive"
                                 onClick={handle_resign}
-                                disabled={gameStatus["isGameOver"]}
+                                disabled={placementMode}
                             >
                                 Resign
                             </Button>
@@ -342,7 +279,7 @@ cl {
                     </CardHeader>
                     <CardContent className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <span>{props["playerName"]}</span>
+                            <span>{props.playerName}</span>
                             <Badge variant={get_current_player_badge_variant()}>
                                 {playerColor}
                             </Badge>
@@ -363,12 +300,12 @@ cl {
                     </CardHeader>
                     <CardContent>
                         <div className="max-h-60 overflow-y-auto">
-                            {format_move_history().length > 0 &&
+                            {len(format_move_history()) > 0 &&
                                 <div className="space-y-1">
                                     {render_move_history_items()}
                                 </div>
                             }
-                            {format_move_history().length == 0 &&
+                            {len(format_move_history()) == 0 &&
                                 <p className="text-sm text-muted-foreground">No moves yet</p>
                             }
                         </div>
@@ -382,7 +319,7 @@ cl {
                     <CardContent className="space-y-2 text-sm">
                         <div className="flex justify-between">
                             <span>Move count:</span>
-                            <span>{moveHistory.length}</span>
+                            <span>{len(moveHistory)}</span>
                         </div>
                         <div className="flex justify-between">
                             <span>Turn:</span>

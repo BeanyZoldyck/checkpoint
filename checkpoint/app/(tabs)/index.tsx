@@ -18,14 +18,12 @@ import {
   createGame,
   joinGame,
   subscribeToGameUpdates,
-  registerPushToken
+  registerPushToken,
+  subscribeToResetEvents,
+  type ResetBoardResponse
 } from '@/services/api';
 import { getAppSyncConfig } from '@/services/config';
-import {
-  initializeNotifications,
-  registerForGameNotifications,
-  setupNotificationListeners
-} from '@/services/notifications';
+
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
@@ -37,6 +35,7 @@ export default function CameraScreen() {
   const [opponentMove, setOpponentMove] = useState<ChessMove | null>(null);
   const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected'>('disconnected');
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const [resetStatus, setResetStatus] = useState<string>('');
   
   // Game state
   const [gameId, setGameId] = useState<string | null>(null);
@@ -51,28 +50,6 @@ export default function CameraScreen() {
         const config = getAppSyncConfig();
         configureAWS(config);
         
-        // Initialize notifications
-        await initializeNotifications();
-        
-        // Set up notification listeners (only for game start/end events)
-        const cleanup = setupNotificationListeners(
-          (notification) => {
-            // Handle notification received while app is open
-            const data = notification.request.content.data as any;
-            if (data.type === 'game_start' || data.type === 'game_end') {
-              console.log('Game event notification:', data);
-            }
-            // Note: Move notifications are now handled via camera overlay, not notifications
-          },
-          (response) => {
-            // Handle notification tap
-            const data = response.notification.request.content.data as any;
-            if (data.gameId) {
-              setGameId(data.gameId);
-            }
-          }
-        );
-        
         // Create a demo game for testing (in real app, this would be user-driven)
         const playerId = `player-${Date.now()}`;
         setPlayerId(playerId);
@@ -80,9 +57,6 @@ export default function CameraScreen() {
         const gameResult = await createGame(playerId);
         if (gameResult) {
           setGameId(gameResult.gameId);
-          
-          // Register for push notifications
-          await registerForGameNotifications(gameResult.gameId, playerId);
           
           // Subscribe to game updates
           const unsubscribe = subscribeToGameUpdates(
@@ -100,11 +74,30 @@ export default function CameraScreen() {
             (status) => setWsStatus(status)
           );
           
+          // Subscribe to board reset events
+          const unsubscribeReset = subscribeToResetEvents(
+            gameResult.gameId,
+            (resetData: ResetBoardResponse) => {
+              console.log('Board reset received:', resetData);
+              setResetStatus(resetData.message || 'Board was reset');
+              
+              // Clear all current state when board is reset
+              setLastDetected(null);
+              setOpponentMove(null);
+              
+              // Clear reset status after 3 seconds
+              setTimeout(() => {
+                setResetStatus('');
+              }, 3000);
+            },
+            (status) => console.log('Reset subscription status:', status)
+          );
+          
           setGameInitialized(true);
           
           return () => {
-            cleanup();
             unsubscribe();
+            unsubscribeReset();
           };
         }
       } catch (error) {
@@ -208,6 +201,14 @@ export default function CameraScreen() {
         </View>
       )}
 
+      {resetStatus !== '' && (
+        <View style={[styles.moveBanner, styles.resetBanner, { top: insets.top + (lastDetected ? 88 : 48) }]}>
+          <Text style={styles.moveBannerText}>
+            🔄 {resetStatus}
+          </Text>
+        </View>
+      )}
+
       {/* Capture button */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable
@@ -306,6 +307,9 @@ const styles = StyleSheet.create({
   },
   detectedBanner: {
     backgroundColor: 'rgba(34,197,94,0.25)',
+  },
+  resetBanner: {
+    backgroundColor: 'rgba(59,130,246,0.25)',
   },
   moveBannerText: {
     color: '#fff',

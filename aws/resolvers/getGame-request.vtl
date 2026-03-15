@@ -1,0 +1,10 @@
+## Get Game Query Request Template
+## Retrieves game state by gameId
+
+{
+  "version": "2017-02-28",
+  "operation": "GetItem",
+  "key": {
+    "gameId": $util.dynamodb.toDynamoDBJson($ctx.args.gameId)
+  }
+}

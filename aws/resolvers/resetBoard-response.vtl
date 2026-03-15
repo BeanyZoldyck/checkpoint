@@ -1,0 +1,20 @@
+## Reset Board Mutation Response Template
+## Returns success response with game information
+
+#if($ctx.error)
+  $util.error($ctx.error.message, $ctx.error.type)
+#end
+
+{
+  "success": true,
+  "gameId": "$ctx.result.gameId",
+  "message": #if($ctx.args.input.resetType == "FULL_RESET")
+    "Board reset to starting position"
+  #elseif($ctx.args.input.resetType == "CLEAR_BOARD")  
+    "Board cleared completely"
+  #elseif($ctx.args.input.resetType == "UNDO_LAST_MOVE")
+    "Last move undone"
+  #else
+    "Board has been reset"
+  #end
+}

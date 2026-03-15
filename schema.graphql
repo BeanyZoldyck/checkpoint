@@ -1,0 +1,131 @@
+# AWS AppSync GraphQL Schema for Checkpoint Chess Application
+
+# Existing types from the mobile app
+type ChessMove {
+    from: String!
+    to: String!
+    san: String!
+}
+
+type GameState {
+    gameId: ID!
+    joinCode: String
+    status: GameStatus!
+    currentTurn: PlayerColor!
+    state: String! # FEN notation
+    lastMove: ChessMove
+    winner: PlayerColor
+    createdAt: AWSDateTime!
+    updatedAt: AWSDateTime!
+}
+
+enum GameStatus {
+    waiting
+    active
+    finished
+}
+
+enum PlayerColor {
+    WHITE
+    BLACK
+}
+
+# New types for board reset functionality
+type ResetBoardResponse {
+    success: Boolean!
+    gameId: ID!
+    message: String
+    error: String
+}
+
+# Input types
+input ResetBoardInput {
+    gameId: ID!
+    playerId: ID!
+    resetType: ResetType!
+}
+
+enum ResetType {
+    FULL_RESET      # Reset to starting position
+    CLEAR_BOARD     # Clear the board completely
+    UNDO_LAST_MOVE  # Undo the last move
+}
+
+# Existing types from mobile app
+type CreateGameResponse {
+    gameId: ID!
+    joinCode: String!
+    playerId: ID!
+    playerRole: PlayerColor!
+}
+
+type JoinGameResponse {
+    success: Boolean!
+    gameId: ID
+    playerId: ID
+    playerRole: PlayerColor
+    error: String
+}
+
+type UploadImageResponse {
+    success: Boolean!
+    detectedMove: ChessMove
+    error: String
+}
+
+type RegisterPushTokenResponse {
+    success: Boolean!
+    message: String
+    error: String
+}
+
+# Mutations
+type Mutation {
+    # Existing mutations from mobile app
+    createGame(playerId: ID!): CreateGameResponse
+    joinGame(joinCode: String!, playerId: ID!): JoinGameResponse
+    uploadImage(gameId: ID!, playerId: ID!, imageKey: String!): UploadImageResponse
+    registerPushToken(gameId: ID!, playerId: ID!, pushToken: String!, playerColor: PlayerColor): RegisterPushTokenResponse
+    
+    # New reset board mutation
+    resetBoard(input: ResetBoardInput!): ResetBoardResponse
+}
+
+# Queries
+type Query {
+    getGame(gameId: ID!): GameState
+    listActiveGames: [GameState!]!
+}
+
+# Subscriptions
+type Subscription {
+    # Existing subscription from mobile app
+    onGameUpdated(gameId: ID!): GameState
+        @aws_subscribe(mutations: ["uploadImage"])
+    
+    # New subscription for board reset events
+    onBoardReset(gameId: ID!): ResetBoardResponse
+        @aws_subscribe(mutations: ["resetBoard"])
+}
+
+# DynamoDB table schemas (for reference - not part of GraphQL schema)
+# These would be created separately in your AWS infrastructure
+
+# GameTable:
+# - gameId (Partition Key) - String
+# - status - String (waiting, active, finished)
+# - currentTurn - String (WHITE, BLACK)
+# - state - String (FEN notation)
+# - lastMove - Map { from: String, to: String, san: String }
+# - winner - String (WHITE, BLACK, null)
+# - joinCode - String
+# - createdAt - String (ISO timestamp)
+# - updatedAt - String (ISO timestamp)
+# - players - Map { white: String, black: String } (player IDs)
+
+# PlayersTable:
+# - playerId (Partition Key) - String
+# - gameId (Sort Key) - String
+# - playerColor - String (WHITE, BLACK)
+# - pushToken - String (optional)
+# - joinedAt - String (ISO timestamp)

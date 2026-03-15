@@ -5,6 +5,7 @@ cl {
     def:pub Chessboard(props: {
         position: dict,
         onMove?: Function,
+        onSquareClick?: Function,
         orientation?: str,
         showCoordinates?: bool,
         highlightSquares?: list,
@@ -91,6 +92,13 @@ cl {
         }
 
         def handle_square_click(square: str) -> None {
+            # Handle piece placement mode
+            if props.onSquareClick {
+                props.onSquareClick(square);
+                return;
+            }
+
+            # Handle regular move mode
             if not draggedSquare {
                 if props.position and props.position[square] {
                     draggedSquare = square;

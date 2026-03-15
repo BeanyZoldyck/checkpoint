@@ -1,0 +1,27 @@
+## Create Game Mutation Request Template
+## Creates a new game with initial state
+
+#set($gameId = $util.autoId())
+#set($joinCode = $util.str.toUpper($util.str.toReplace($util.autoId(), "-", "")).substring(0, 6))
+#set($now = $util.time.nowISO8601())
+
+{
+  "version": "2017-02-28",
+  "operation": "PutItem",
+  "key": {
+    "gameId": $util.dynamodb.toDynamoDBJson($gameId)
+  },
+  "attributeValues": {
+    "gameId": $util.dynamodb.toDynamoDBJson($gameId),
+    "joinCode": $util.dynamodb.toDynamoDBJson($joinCode),
+    "status": $util.dynamodb.toDynamoDBJson("waiting"),
+    "currentTurn": $util.dynamodb.toDynamoDBJson("WHITE"),
+    "state": $util.dynamodb.toDynamoDBJson("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+    "createdAt": $util.dynamodb.toDynamoDBJson($now),
+    "updatedAt": $util.dynamodb.toDynamoDBJson($now),
+    "createdBy": $util.dynamodb.toDynamoDBJson($ctx.args.playerId)
+  },
+  "condition": {
+    "expression": "attribute_not_exists(gameId)"
+  }
+}

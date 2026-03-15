@@ -1,4 +1,4 @@
-# ChessLink - Jac Chess Application
+# Checkpoint - Jac Chess Application
 
 A full-featured chess application built with the Jaseci stack. Play chess immediately with an AI opponent - no setup required!
 
@@ -57,14 +57,20 @@ web/
 
 ## Running the Application
 
+Use the project's venv jac: `../venv/bin/jac` (from `web/`) or `venv/bin/jac` (from repo root).
+
 1. Install dependencies:
    ```bash
-   jac install
+   ../venv/bin/jac install
    ```
 
-2. Start the development server:
+2. Start the development server (from `web/`):
    ```bash
-   jac start main.jac
+   npm run dev
+   ```
+   Or directly:
+   ```bash
+   ../venv/bin/jac start main.jac --dev
    ```
 
 3. Open browser to: `http://localhost:8001`

@@ -381,6 +381,122 @@ export async function registerPushToken(gameId: string, playerId: string, pushTo
   }
 }
 
+// --- Board Reset Functionality ---
+
+export type ResetType = 'FULL_RESET' | 'CLEAR_BOARD' | 'UNDO_LAST_MOVE';
+
+export interface ResetBoardResponse {
+  success: boolean;
+  gameId: string;
+  message?: string;
+  error?: string;
+}
+
+const RESET_BOARD_MUTATION = `
+  mutation ResetBoard($input: ResetBoardInput!) {
+    resetBoard(input: $input) {
+      success
+      gameId
+      message
+      error
+    }
+  }
+`;
+
+const RESET_SUBSCRIPTION = `
+  subscription OnBoardReset($gameId: ID!) {
+    onBoardReset(gameId: $gameId) {
+      success
+      gameId
+      message
+      error
+    }
+  }
+`;
+
+export async function resetBoard(
+  gameId: string, 
+  playerId: string, 
+  resetType: ResetType = 'FULL_RESET'
+): Promise<ResetBoardResponse> {
+  if (STUB_MODE) {
+    console.log('[STUB] Would reset board:', { gameId, playerId, resetType });
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return {
+      success: true,
+      gameId,
+      message: `Board reset with type: ${resetType}`
+    };
+  }
+
+  try {
+    const result = await client.graphql({
+      query: RESET_BOARD_MUTATION,
+      variables: {
+        input: {
+          gameId,
+          playerId,
+          resetType
+        }
+      }
+    });
+
+    return result.data.resetBoard;
+  } catch (error) {
+    console.error('Error resetting board:', error);
+    return {
+      success: false,
+      gameId,
+      error: 'Failed to reset board'
+    };
+  }
+}
+
+export function subscribeToResetEvents(
+  gameId: string,
+  onReset: (resetData: ResetBoardResponse) => void,
+  onStatusChange?: (status: 'connected' | 'disconnected') => void,
+): () => void {
+  if (STUB_MODE) {
+    console.log('[STUB] Would subscribe to reset events for game:', gameId);
+    onStatusChange?.('connected');
+    
+    return () => {
+      onStatusChange?.('disconnected');
+    };
+  }
+
+  try {
+    onStatusChange?.('connected');
+    
+    const subscription = client.graphql({
+      query: RESET_SUBSCRIPTION,
+      variables: { gameId }
+    }).subscribe({
+      next: (data: any) => {
+        const resetData = data.data?.onBoardReset;
+        if (resetData) {
+          onReset(resetData);
+        }
+      },
+      error: (error) => {
+        console.error('Reset subscription error:', error);
+        onStatusChange?.('disconnected');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      onStatusChange?.('disconnected');
+    };
+  } catch (error) {
+    console.error('Error setting up reset subscription:', error);
+    onStatusChange?.('disconnected');
+    return () => {};
+  }
+}
+
 // Legacy function for backward compatibility
 export function connectWebSocket(
   onOpponentMove: (move: ChessMove) => void,

@@ -34,18 +34,21 @@ cl {
                       'a2','b2','c2','d2','e2','f2','g2','h2',
                       'a1','b1','c1','d1','e1','f1','g1','h1'];
             
+            has piece_count: int = 0;
             for square in squares {
                 try {
                     piece = self.engine.get(square);
                     if piece {
                         board[square] = f"{piece.color}{piece.type.toUpperCase()}";
+                        piece_count = piece_count + 1;
                     }
                 } except Exception as e {
                     print(f"Error getting piece at {square}: {e}");
                     continue;
                 }
             }
-            print(f"Found {len(board)} pieces on the board");
+            
+            print(f"Found {piece_count} pieces on the board");
             print(f"Board: {board}");
             return board;
         }

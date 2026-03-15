@@ -18,10 +18,10 @@ React Native/Expo mobile app for playing chess with push notifications and AWS A
    ```
 
 2. **Deploy AWS Backend**:
-   ```bash
-   cd ../chess-link
-   ./deploy.sh
-   ```
+    ```bash
+    cd ../checkpoint
+    ./deploy.sh
+    ```
    This automatically configures the mobile app with AWS endpoints.
 
 3. **Start Development Server**:

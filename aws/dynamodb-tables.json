@@ -1,0 +1,114 @@
+{
+  "GameTable": {
+    "TableName": "CheckpointGames",
+    "KeySchema": [
+      {
+        "AttributeName": "gameId",
+        "KeyType": "HASH"
+      }
+    ],
+    "AttributeDefinitions": [
+      {
+        "AttributeName": "gameId",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "joinCode",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "status",
+        "AttributeType": "S"
+      }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+      {
+        "IndexName": "JoinCodeIndex",
+        "KeySchema": [
+          {
+            "AttributeName": "joinCode",
+            "KeyType": "HASH"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "ALL"
+        }
+      },
+      {
+        "IndexName": "StatusIndex",
+        "KeySchema": [
+          {
+            "AttributeName": "status",
+            "KeyType": "HASH"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "ALL"
+        }
+      }
+    ],
+    "StreamSpecification": {
+      "StreamEnabled": true,
+      "StreamViewType": "NEW_AND_OLD_IMAGES"
+    },
+    "Tags": [
+      {
+        "Key": "Application",
+        "Value": "Checkpoint"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "GameState"
+      }
+    ]
+  },
+  "PlayersTable": {
+    "TableName": "CheckpointPlayers",
+    "KeySchema": [
+      {
+        "AttributeName": "playerId",
+        "KeyType": "HASH"
+      },
+      {
+        "AttributeName": "gameId",
+        "KeyType": "RANGE"
+      }
+    ],
+    "AttributeDefinitions": [
+      {
+        "AttributeName": "playerId",
+        "AttributeType": "S"
+      },
+      {
+        "AttributeName": "gameId",
+        "AttributeType": "S"
+      }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+      {
+        "IndexName": "GamePlayersIndex",
+        "KeySchema": [
+          {
+            "AttributeName": "gameId",
+            "KeyType": "HASH"
+          }
+        ],
+        "Projection": {
+          "ProjectionType": "ALL"
+        }
+      }
+    ],
+    "Tags": [
+      {
+        "Key": "Application",
+        "Value": "Checkpoint"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "PlayerManagement"
+      }
+    ]
+  }
+}

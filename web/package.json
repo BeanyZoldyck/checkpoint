@@ -1,0 +1,30 @@
+{
+  "name": "chess-web-app",
+  "version": "1.0.0",
+  "description": "Chess game web application built with Jac",
+  "main": "main.jac",
+  "scripts": {
+    "compile:lib": "esbuild src/lib/api.ts --bundle --outfile=lib-api-package/index.js --format=esm --platform=browser",
+    "dev": "npm run compile:lib && ../venv/bin/jac start main.jac --dev",
+    "build": "npm run compile:lib && ../venv/bin/jac start main.jac",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@aws-amplify/api-graphql": "^4.8.5",
+    "aws-amplify": "^6.16.3",
+    "chess.js": "^1.0.0-beta.8",
+    "react": "^18.0.0",
+    "checkpoint-lib-api": "file:./lib-api-package"
+  },
+  "keywords": [
+    "chess",
+    "game",
+    "jac",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.27.0"
+  }
+}

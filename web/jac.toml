@@ -25,6 +25,7 @@ react-resizable-panels = "*"
 recharts = "*"
 vaul = "*"
 "chess.js" = "^1.0.0"
+"checkpoint-lib-api" = "file:./lib-api-package"
 
 [dependencies.npm.dev]
 "@jac-client/dev-deps" = "2.0.0"
@@ -54,3 +55,6 @@ registry = "https://jac-shadcn.jaseci.org"
 [jacpack]
 name = "jac-shadcn-themed-project"
 description = "Themed jac-client project"
+
+[dev-dependencies]
+watchdog = "~=6.0"

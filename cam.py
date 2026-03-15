@@ -11,17 +11,27 @@ Flow:
   4. Sends the before/after images to Bedrock for move detection (unless --debug).
   5. The "after" image becomes the new "before" image; loop back to step 2.
 
+Keybinds:
+    q     — quit
+    s     — force-capture current frame as new baseline
+    SPACE — pause/resume (releases camera while paused)
+    p     — play the next move from the predetermined sequence
+    k     — enter a custom move in UCI format (e.g. e7e5)
+
 Usage:
     python cam.py                  # Full mode — captures + Bedrock analysis
     python cam.py --debug          # Debug mode — captures only, no Bedrock calls
     python cam.py --camera 1       # Use a different camera index
-    python cam.py --settle 5       # Wait 5s of calm instead of default 8s
+    python cam.py --settle 5       # Wait 5s of calm instead of default 4s
 """
 
 import argparse
+import json
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import cv2
 import numpy as np
@@ -37,6 +47,31 @@ FRAME_HEIGHT = 480
 IMAGE_DIR = Path("captures")
 
 # ---------------------------------------------------------------------------
+# AppSync config
+# ---------------------------------------------------------------------------
+APPSYNC_ENDPOINT = (
+    "https://wltticbi65fl5kmnpsenbj26ky.appsync-api.us-east-2.amazonaws.com/graphql"
+)
+APPSYNC_API_KEY = "da2-idf5umd5m5hu3cui4hyi526dee"
+
+# ---------------------------------------------------------------------------
+# Predetermined move sequence (physical player = BLACK)
+# Each entry: (from_square, to_square, piece_letter)
+# ---------------------------------------------------------------------------
+PREDETERMINED_MOVES = [
+    ("e7", "e5", "p"),  # 1... e5
+    ("d7", "d5", "p"),  # 2... d5
+    ("b8", "c6", "n"),  # 3... Nc6
+    ("g8", "f6", "n"),  # 4... Nf6
+    ("f8", "c5", "b"),  # 5... Bc5
+    ("e8", "g8", "k"),  # 6... O-O (king move for castling)
+    ("f8", "e8", "r"),  # 7... Re8
+    ("c6", "d4", "n"),  # 8... Nd4
+    ("f6", "e4", "n"),  # 9... Nxe4
+    ("d8", "h4", "q"),  # 10... Qh4
+]
+
+# ---------------------------------------------------------------------------
 # Bedrock integration (imported lazily so --debug works without boto3)
 # ---------------------------------------------------------------------------
 _detect_move = None
@@ -50,6 +85,49 @@ def _load_detect_move():
 
         _detect_move = detect_move
     return _detect_move
+
+
+# ---------------------------------------------------------------------------
+# AppSync GraphQL helpers
+# ---------------------------------------------------------------------------
+def record_physical_move(
+    from_sq: str, to_sq: str, piece: str = "p", fen: str = ""
+) -> dict:
+    """Call the recordPhysicalMove mutation on AppSync."""
+    mutation = """
+    mutation RecordPhysicalMove($from: String!, $to: String!, $piece: String!, $fen: String!) {
+        recordPhysicalMove(from: $from, to: $to, piece: $piece, fen: $fen) {
+            id gameId from to piece san fen playerColor moveNumber timestamp
+        }
+    }
+    """
+    payload = json.dumps(
+        {
+            "query": mutation,
+            "variables": {"from": from_sq, "to": to_sq, "piece": piece, "fen": fen},
+        }
+    ).encode()
+
+    req = Request(APPSYNC_ENDPOINT, data=payload, method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("x-api-key", APPSYNC_API_KEY)
+
+    with urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+
+    if "errors" in data:
+        raise RuntimeError(data["errors"][0]["message"])
+
+    return data["data"]["recordPhysicalMove"]
+
+
+def _prompt_for_move() -> str | None:
+    """Blocking input prompt for a custom UCI move. Runs in a thread."""
+    try:
+        move = input("[k] Enter move in UCI format (e.g. e7e5): ").strip()
+        return move if move else None
+    except EOFError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +230,15 @@ def main():
     move_number = 0
     last_motion_time = 0.0  # timestamp of last detected motion
     settle_start_time = 0.0  # when settling began
+    predetermined_index = 0  # next move to play from PREDETERMINED_MOVES
+    pending_custom_move = None  # holds result from 'k' input thread
+    input_thread = None  # thread for blocking input prompt
 
     print("[*] Position your camera over the board in the starting position.")
     print(
         "[*] Press 's' to capture the starting position, or it auto-captures after 3s."
     )
+    print("[*] Press 'p' to play next predetermined move, 'k' to enter a custom move")
     startup_time = time.time()
 
     while True:
@@ -375,9 +457,74 @@ def main():
                 # Manual re-capture of current position
                 before_image_path = save_capture(frame, "manual")
                 print(f"[+] Manual capture: {before_image_path}")
+
+            # --- 'p' — play next predetermined move ---
+            elif key == ord("p"):
+                if predetermined_index < len(PREDETERMINED_MOVES):
+                    from_sq, to_sq, piece = PREDETERMINED_MOVES[predetermined_index]
+                    print(
+                        f"[p] Playing predetermined move "
+                        f"{predetermined_index + 1}/{len(PREDETERMINED_MOVES)}: "
+                        f"{from_sq}{to_sq} ({piece})"
+                    )
+                    try:
+                        result = record_physical_move(from_sq, to_sq, piece)
+                        san = result.get("san", "?")
+                        fen = result.get("fen", "?")
+                        mn = result.get("moveNumber", "?")
+                        print(f"[+] Recorded: {san} (move #{mn})")
+                        print(f"    FEN: {fen}")
+                        predetermined_index += 1
+                        move_number += 1
+                    except Exception as e:
+                        print(f"[!] Failed to record move: {e}")
+                else:
+                    print(
+                        f"[p] No more predetermined moves "
+                        f"({len(PREDETERMINED_MOVES)} exhausted). "
+                        f"Use 'k' to enter a custom move."
+                    )
+
+            # --- 'k' — enter a custom move via terminal ---
+            elif key == ord("k"):
+                if input_thread is None or not input_thread.is_alive():
+                    print("[k] Switch to terminal and enter your move...")
+
+                    def _do_custom_move():
+                        nonlocal pending_custom_move
+                        pending_custom_move = _prompt_for_move()
+
+                    input_thread = threading.Thread(target=_do_custom_move, daemon=True)
+                    input_thread.start()
+                else:
+                    print("[k] Already waiting for input in terminal...")
+
         else:
             # Headless: small delay to avoid CPU spin
             time.sleep(0.03)
+
+        # --- Check if custom move input arrived from the thread ---
+        if pending_custom_move is not None:
+            uci = pending_custom_move
+            pending_custom_move = None
+            if len(uci) >= 4:
+                from_sq = uci[:2]
+                to_sq = uci[2:4]
+                # Guess piece letter from the square name (best-effort)
+                piece = "p"
+                print(f"[k] Sending custom move: {from_sq} -> {to_sq}")
+                try:
+                    result = record_physical_move(from_sq, to_sq, piece)
+                    san = result.get("san", "?")
+                    fen = result.get("fen", "?")
+                    mn = result.get("moveNumber", "?")
+                    print(f"[+] Recorded: {san} (move #{mn})")
+                    print(f"    FEN: {fen}")
+                    move_number += 1
+                except Exception as e:
+                    print(f"[!] Failed to record custom move: {e}")
+            else:
+                print(f"[k] Invalid move format: '{uci}' (expected e.g. e7e5)")
 
     # Cleanup
     cap.release()

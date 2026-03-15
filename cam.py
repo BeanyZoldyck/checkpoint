@@ -31,7 +31,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 MOTION_AREA_THRESHOLD = 500  # min contour area (px^2) to count as motion
 MOTION_FRAME_THRESHOLD = 15  # pixel intensity diff to count as changed
-SETTLE_SECONDS = 8  # seconds of no motion before capturing
+SETTLE_SECONDS = 4  # seconds of no motion before capturing
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 IMAGE_DIR = Path("captures")
@@ -160,6 +160,54 @@ def main():
     startup_time = time.time()
 
     while True:
+        # --- State: paused (camera released) ---
+        if state == State.PAUSED:
+            if not args.headless:
+                # Show a static paused frame (black with text)
+                paused_frame = np.zeros((FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
+                cv2.putText(
+                    paused_frame,
+                    "PAUSED - Press SPACE to resume",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 255),
+                    2,
+                )
+                cv2.putText(
+                    paused_frame,
+                    f"Move: {move_number}  [PAUSED]",
+                    (10, FRAME_HEIGHT - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    1,
+                )
+                cv2.imshow("ChessLink Camera", paused_frame)
+                key = cv2.waitKey(50) & 0xFF
+                if key == ord("q"):
+                    break
+                elif key == ord(" "):
+                    # Reopen camera
+                    cap = cv2.VideoCapture(args.camera)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+                    if not cap.isOpened():
+                        print("ERROR: Could not reopen camera")
+                        break
+                    # Let camera auto-expose for a moment
+                    time.sleep(0.5)
+                    # Read a fresh frame to seed prev_gray
+                    ret, frame = cap.read()
+                    if ret:
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        prev_gray = cv2.GaussianBlur(gray, (21, 21), 0)
+                    state = State.IDLE
+                    print("[*] Resumed. Watching for moves...")
+            else:
+                time.sleep(0.05)
+            continue
+
         ret, frame = cap.read()
         if not ret:
             print("ERROR: Failed to read frame")
@@ -295,32 +343,15 @@ def main():
                     state = State.IDLE
                     print("[*] Watching for next move...")
 
-        # --- State: paused ---
-        elif state == State.PAUSED:
-            if not args.headless:
-                cv2.putText(
-                    frame,
-                    "PAUSED - Press SPACE to resume",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 0, 255),
-                    2,
-                )
-
-        # Update previous frame (skip during pause so resume starts clean)
-        if state != State.PAUSED:
-            prev_gray = gray_blurred
+        # Update previous frame
+        prev_gray = gray_blurred
 
         # --- Display ---
         if not args.headless:
-            # Show move count and state
-            status_text = f"Move: {move_number}"
-            if state == State.PAUSED:
-                status_text += "  [PAUSED]"
+            # Show move count
             cv2.putText(
                 frame,
-                status_text,
+                f"Move: {move_number}",
                 (10, FRAME_HEIGHT - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
@@ -332,15 +363,11 @@ def main():
             if key == ord("q"):
                 break
             elif key == ord(" "):
-                if state == State.PAUSED:
-                    # Resume — go to idle, reset prev_gray so motion
-                    # detection doesn't trigger on the stale frame diff
-                    prev_gray = gray_blurred
-                    state = State.IDLE
-                    print("[*] Resumed. Watching for moves...")
-                elif state != State.WAITING_FOR_START:
+                if state != State.WAITING_FOR_START:
+                    # Release camera so the webcam light turns off
+                    cap.release()
                     state = State.PAUSED
-                    print("[*] Paused. Press SPACE to resume.")
+                    print("[*] Paused (camera off). Press SPACE to resume.")
             elif key == ord("s") and state not in (
                 State.WAITING_FOR_START,
                 State.PAUSED,

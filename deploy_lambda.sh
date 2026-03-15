@@ -171,7 +171,7 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" &>/dev/null; then
         --function-name "$FUNCTION_NAME" \
         --timeout "$TIMEOUT" \
         --memory-size "$MEMORY" \
-        --environment "Variables={BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.amazon.nova-pro-v1:0},BEDROCK_REGION=$REGION}" \
+        --environment "Variables={BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0},BEDROCK_REGION=$REGION}" \
         --query "FunctionArn" --output text
 else
     log "Creating Lambda function: $FUNCTION_NAME"
@@ -183,7 +183,7 @@ else
         --zip-file "fileb://$ZIP_PATH" \
         --timeout "$TIMEOUT" \
         --memory-size "$MEMORY" \
-        --environment "Variables={BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.amazon.nova-pro-v1:0},BEDROCK_REGION=$REGION}" \
+        --environment "Variables={BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0},BEDROCK_REGION=$REGION}" \
         --query "FunctionArn" --output text
 fi
 

@@ -145,13 +145,45 @@ def invoke_bedrock(content_blocks: list) -> dict:
     else:
         text = result["output"]["message"]["content"][0]["text"]
 
-    # Extract JSON from possible markdown code blocks
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
+    return _extract_json(text)
 
-    return json.loads(text.strip())
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from model response text, handling various formats."""
+    stripped = text.strip()
+
+    # 1. Try parsing the full response as-is
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Try extracting from markdown code blocks
+    if "```json" in text:
+        block = text.split("```json")[1].split("```")[0]
+        try:
+            return json.loads(block.strip())
+        except json.JSONDecodeError:
+            pass
+    elif "```" in text:
+        block = text.split("```")[1].split("```")[0]
+        try:
+            return json.loads(block.strip())
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Find the first '{' and last '}' — extract embedded JSON object
+    first_brace = stripped.find("{")
+    last_brace = stripped.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = stripped[first_brace : last_brace + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Nothing worked
+    raise ValueError(f"Could not extract JSON from model response: {text[:500]}")
 
 
 def validate_fen(fen: str) -> dict:

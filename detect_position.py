@@ -36,7 +36,7 @@ import chess
 # ---------------------------------------------------------------------------
 REGION = "us-east-2"
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")  # auto-detect if empty
-MAX_TOKENS = 2048
+MAX_TOKENS = 5000
 
 # Model preference order for auto-detection (best vision accuracy first)
 MODEL_CANDIDATES = [
@@ -224,13 +224,51 @@ def invoke_bedrock(content_blocks: list[dict]) -> dict:
     else:
         text = result["output"]["message"]["content"][0]["text"]
 
-    # Parse JSON from response (handle markdown code blocks)
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0]
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0]
+    return _extract_json(text)
 
-    return json.loads(text.strip())
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from model response text, handling various formats.
+
+    Handles:
+      - Pure JSON response
+      - JSON wrapped in ```json ... ``` code blocks
+      - JSON embedded after preamble text (finds first { ... last })
+    """
+    stripped = text.strip()
+
+    # 1. Try parsing the full response as-is
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    # 2. Try extracting from markdown code blocks
+    if "```json" in text:
+        block = text.split("```json")[1].split("```")[0]
+        try:
+            return json.loads(block.strip())
+        except json.JSONDecodeError:
+            pass
+    elif "```" in text:
+        block = text.split("```")[1].split("```")[0]
+        try:
+            return json.loads(block.strip())
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Find the first '{' and last '}' — extract embedded JSON object
+    first_brace = stripped.find("{")
+    last_brace = stripped.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = stripped[first_brace : last_brace + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Nothing worked
+    raise ValueError(f"Could not extract JSON from model response:\n{text[:500]}")
 
 
 def validate_fen(fen: str) -> dict:

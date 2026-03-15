@@ -1,148 +1,111 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Animated } from 'react-native';
-import Svg, { Defs, Line, Marker, Polygon, Circle } from 'react-native-svg';
+import { Animated, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle, Defs, Line, Marker, Polygon } from 'react-native-svg';
 
-import type { ChessMove } from '@/services/api';
+interface Pixel { x: number; y: number }
 
 interface MoveArrowOverlayProps {
-  move: ChessMove | null;
+  /** Pre-computed pixel centre of the source square (in screen/preview coordinates) */
+  fromPixel: Pixel | null;
+  /** Pre-computed pixel centre of the destination square */
+  toPixel: Pixel | null;
+  /** Human-readable move label shown in the banner, e.g. "e2 → e4" */
+  moveLabel: string | null;
   width: number;
   height: number;
 }
 
-function squareToPixel(
-  square: string,
-  boardSize: number,
-  offsetX: number,
-  offsetY: number,
-) {
-  const file = square.charCodeAt(0) - 97; // a=0 … h=7
-  const rank = parseInt(square[1], 10) - 1; // 1=0 … 8=7
-  const cell = boardSize / 8;
-
-  // White at bottom: a1 = bottom-left
-  const x = offsetX + (file + 0.5) * cell;
-  const y = offsetY + (7 - rank + 0.5) * cell;
-  return { x, y };
-}
-
-export function MoveArrowOverlay({ move, width, height }: MoveArrowOverlayProps) {
+export function MoveArrowOverlay({
+  fromPixel,
+  toPixel,
+  moveLabel,
+  width,
+  height,
+}: MoveArrowOverlayProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  
+
   useEffect(() => {
-    if (move) {
-      // Create pulsing animation when a new move is shown
+    if (fromPixel && toPixel) {
       const pulse = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.3,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
+          Animated.timing(pulseAnim, { toValue: 1.25, duration: 750, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1,    duration: 750, useNativeDriver: true }),
+        ]),
       );
-      
       pulse.start();
-      
-      // Stop animation after 5 seconds
       const timeout = setTimeout(() => {
         pulse.stop();
         pulseAnim.setValue(1);
       }, 5000);
-      
       return () => {
         clearTimeout(timeout);
         pulse.stop();
       };
     }
-  }, [move, pulseAnim]);
-  
-  if (!move || width === 0 || height === 0) return null;
+  }, [fromPixel, toPixel, pulseAnim]);
 
-  // Assume the board occupies the central square region of the camera view
-  const boardSize = Math.min(width, height) * 0.85;
-  const offsetX = (width - boardSize) / 2;
-  const offsetY = (height - boardSize) / 2;
+  if (!fromPixel || !toPixel || width === 0 || height === 0) return null;
 
-  const from = squareToPixel(move.from, boardSize, offsetX, offsetY);
-  const to = squareToPixel(move.to, boardSize, offsetX, offsetY);
-
-  const arrowHeadSize = boardSize / 20;
-  const strokeWidth = boardSize / 40;
-  const circleRadius = boardSize / 35;
+  // Scale arrow dimensions relative to the preview size
+  const ref = Math.min(width, height);
+  const strokeWidth  = ref / 40;
+  const circleRadius = ref / 35;
+  const arrowHead    = ref / 20;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* Move info banner at top with pulse animation */}
-      <Animated.View 
-        style={[
-          styles.moveBanner,
-          {
-            transform: [{ scale: pulseAnim }]
-          }
-        ]}
-      >
-        <Text style={styles.moveBannerText}>
-          🎯 Opponent Move: <Text style={styles.moveHighlight}>{move.san}</Text>
-          {' '}({move.from} → {move.to})
-        </Text>
-      </Animated.View>
+      {/* Banner */}
+      {moveLabel && (
+        <Animated.View style={[styles.banner, { transform: [{ scale: pulseAnim }] }]}>
+          <Text style={styles.bannerText}>
+            Opponent: <Text style={styles.bannerHighlight}>{moveLabel}</Text>
+          </Text>
+        </Animated.View>
+      )}
 
       <Svg width={width} height={height}>
         <Defs>
           <Marker
             id="arrowhead"
-            markerWidth={arrowHeadSize}
-            markerHeight={arrowHeadSize}
-            refX={arrowHeadSize * 0.8}
-            refY={arrowHeadSize / 2}
+            markerWidth={arrowHead}
+            markerHeight={arrowHead}
+            refX={arrowHead * 0.8}
+            refY={arrowHead / 2}
             orient="auto"
           >
             <Polygon
-              points={`0,0 ${arrowHeadSize},${arrowHeadSize / 2} 0,${arrowHeadSize}`}
-              fill="#FF6B35"
-              stroke="#FFF"
+              points={`0,0 ${arrowHead},${arrowHead / 2} 0,${arrowHead}`}
+              fill="#FFD700"
+              stroke="#fff"
               strokeWidth="1"
             />
           </Marker>
         </Defs>
-        
-        {/* From circle (where move started) */}
+
+        {/* Origin circle */}
         <Circle
-          cx={from.x}
-          cy={from.y}
-          r={circleRadius}
-          fill="rgba(255, 107, 53, 0.3)"
-          stroke="#FF6B35"
+          cx={fromPixel.x} cy={fromPixel.y} r={circleRadius}
+          fill="rgba(255,215,0,0.25)"
+          stroke="#FFD700"
           strokeWidth="3"
         />
-        
-        {/* To circle (where move ended) */}
+
+        {/* Destination circle */}
         <Circle
-          cx={to.x}
-          cy={to.y}
-          r={circleRadius}
-          fill="rgba(255, 107, 53, 0.5)"
-          stroke="#FF6B35"
+          cx={toPixel.x} cy={toPixel.y} r={circleRadius}
+          fill="rgba(255,215,0,0.5)"
+          stroke="#FFD700"
           strokeWidth="4"
         />
-        
-        {/* Move arrow */}
+
+        {/* Arrow shaft */}
         <Line
-          x1={from.x}
-          y1={from.y}
-          x2={to.x}
-          y2={to.y}
-          stroke="#FF6B35"
+          x1={fromPixel.x} y1={fromPixel.y}
+          x2={toPixel.x}   y2={toPixel.y}
+          stroke="#FFD700"
           strokeWidth={strokeWidth}
-          strokeOpacity={0.9}
+          strokeOpacity={0.92}
           strokeLinecap="round"
-          strokeDasharray="10,5"
           markerEnd="url(#arrowhead)"
         />
       </Svg>
@@ -151,33 +114,28 @@ export function MoveArrowOverlay({ move, width, height }: MoveArrowOverlayProps)
 }
 
 const styles = StyleSheet.create({
-  moveBanner: {
+  banner: {
     position: 'absolute',
     top: 60,
     left: 16,
     right: 16,
-    backgroundColor: 'rgba(255, 107, 53, 0.95)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.4)',
     zIndex: 1000,
   },
-  moveBannerText: {
-    color: '#FFF',
+  bannerText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
   },
-  moveHighlight: {
-    fontWeight: 'bold',
+  bannerHighlight: {
     color: '#FFD700',
-    fontSize: 18,
+    fontWeight: '800',
+    fontSize: 17,
   },
 });

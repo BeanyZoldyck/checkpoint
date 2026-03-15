@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint - Physical Board (Test Mode)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .test-banner {
+            background: #ff6b6b;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .test-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 2px dashed #dee2e6;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .test-log {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-banner">
+        🧪 TEST MODE: Local Development Server
+    </div>
+    
+    <div class="app-container">
+        <!-- Test Controls -->
+        <div class="test-controls">
+            <h3>🧪 Real-time Messaging Test</h3>
+            <p>Test bidirectional communication between mobile and desktop clients</p>
+            <button class="test-button" onclick="sendTestMessage()">📤 Send Test Message</button>
+            <button class="test-button" onclick="sendMockMove()">♟️ Send Mock Move</button>
+            <button class="test-button" onclick="clearLog()">🗑️ Clear Log</button>
+            <div class="test-log" id="testLog">
+                <div>📝 Test log initialized...</div>
+            </div>
+        </div>
+        
+        <!-- Original content from index.html -->
+        <header class="app-header">
+            <h1>♟️ Checkpoint</h1>
+            <p>Physical Board Camera (Test Mode)</p>
+        </header>
+
+        <!-- Create Game Section -->
+        <div id="createSection" class="section active">
+            <div class="create-card">
+                <h2>Set Up Your Chess Game</h2>
+                <p>Choose your color and create a game for your opponent to join:</p>
+                
+                <div class="color-selection">
+                    <label class="color-option">
+                        <input type="radio" name="playerColor" value="WHITE" checked>
+                        <div class="color-display">
+                            <span class="color-square white"></span>
+                            <span>Play as White</span>
+                        </div>
+                    </label>
+                    <label class="color-option">
+                        <input type="radio" name="playerColor" value="BLACK">
+                        <div class="color-display">
+                            <span class="color-square black"></span>
+                            <span>Play as Black</span>
+                        </div>
+                    </label>
+                </div>
+                
+                <button id="createGameBtn" class="primary-button">
+                    <span class="button-icon">🎮</span>
+                    Create Game
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Code Section -->
+        <div id="gameCodeSection" class="section">
+            <div class="code-display">
+                <h2>Game Created!</h2>
+                <p>Share this code with your opponent:</p>
+                
+                <div class="join-code-display">
+                    <span id="joinCodeDisplay">------</span>
+                    <button id="copyCodeBtn" class="copy-button">📋</button>
+                </div>
+                
+                <div class="status-indicator">
+                    <span id="connectionStatus" class="status waiting">⏳ Waiting for opponent...</span>
+                </div>
+                
+                <p class="instructions">
+                    Your opponent should visit the digital player page and enter this code.
+                </p>
+            </div>
+        </div>
+
+        <!-- Camera Section -->  
+        <div id="cameraSection" class="section">
+            <div class="camera-container">
+                <h2>Position Your Camera</h2>
+                <p>Point your camera at the chessboard:</p>
+                
+                <div class="camera-feed">
+                    <video id="cameraVideo" autoplay playsinline muted></video>
+                    <canvas id="calibrationCanvas"></canvas>
+                    <div class="camera-overlay">
+                        <div id="cameraStatus" class="camera-status">📸 Initializing camera...</div>
+                    </div>
+                </div>
+                
+                <div class="camera-controls">
+                    <button id="calibrateBtn" class="primary-button">
+                        <span class="button-icon">🎯</span>
+                        Calibrate Board
+                    </button>
+                    <button id="startCaptureBtn" class="primary-button" disabled>
+                        <span class="button-icon">▶️</span>
+                        Start Game
+                    </button>
+                </div>
+                
+                <div class="calibration-help">
+                    <h3>Calibration Instructions:</h3>
+                    <ol>
+                        <li>Position your phone so the entire chessboard is visible</li>
+                        <li>Tap the four corners of the board in order: A1, H1, H8, A8</li>
+                        <li>Make sure the board is in starting position</li>
+                        <li>Good lighting is important for accurate detection</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Active Section -->
+        <div id="gameSection" class="section">
+            <div class="game-interface">
+                <div class="game-header">
+                    <h2>♟️ Game Active</h2>
+                    <div class="turn-indicator">
+                        <span id="turnIndicator">Your turn</span>
+                    </div>
+                </div>
+                
+                <div class="move-display">
+                    <div class="opponent-move" id="opponentMove">
+                        <h3>Opponent's Last Move:</h3>
+                        <div class="move-info">
+                            <span id="lastMoveText">Waiting for move...</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="game-info">
+                    <div class="connection-status">
+                        <span id="gameConnectionStatus">🟢 Connected</span>
+                    </div>
+                    <div class="move-history">
+                        <h4>Move History:</h4>
+                        <div id="moveHistoryList"></div>
+                    </div>
+                </div>
+                
+                <div class="game-controls">
+                    <button id="pauseGameBtn" class="secondary-button">
+                        <span class="button-icon">⏸️</span>
+                        Pause Game
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="errorSection" class="section error-state">
+            <div class="error-card">
+                <h2>⚠️ Error</h2>
+                <p id="errorMessage">Something went wrong.</p>
+                <button id="retryBtn" class="primary-button">
+                    <span class="button-icon">🔄</span>
+                    Try Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="../../../test-config.js"></script>
+    <script src="../../../test-socket-client.js"></script>
+    <script src="camera-manager.js"></script>
+    <script src="board-calibration.js"></script>
+    <script src="physical-app.js"></script>
+    
+    <script>
+        // Test functions
+        function sendTestMessage() {
+            if (window.physicalApp && window.physicalApp.appSync) {
+                const message = `Test from Physical Player at ${new Date().toLocaleTimeString()}`;
+                window.physicalApp.appSync.sendTestMessage(message);
+                addTestLog(`📤 Sent: ${message}`);
+            } else {
+                addTestLog('❌ App not initialized');
+            }
+        }
+        
+        function sendMockMove() {
+            addTestLog('♟️ Simulating move: e2→e4');
+            // This would normally trigger computer vision
+            // For testing, we'll just log it
+        }
+        
+        function addTestLog(message) {
+            const log = document.getElementById('testLog');
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('testLog').innerHTML = '<div>📝 Test log cleared...</div>';
+        }
+        
+        // Expose addTestLog globally for other scripts to use
+        window.addTestLog = addTestLog;
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "checkpoint-test-server",
+  "version": "1.0.0",
+  "description": "Real-time test server for Checkpoint chess app",
+  "main": "test-server.js",
+  "scripts": {
+    "start": "node test-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.22.1",
+    "socket.io": "^4.8.3"
+  },
+  "author": "",
+  "license": "MIT"
+}

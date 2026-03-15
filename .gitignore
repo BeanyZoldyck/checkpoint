@@ -1,2 +1,63 @@
 .env
 *.jpg
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# CDK build artifacts
+cdk.out/
+infrastructure/cdk.out/
+**/.cache/
+
+# Lambda vendored packages (bundled at deploy time, not committed)
+chess-link/lambda/boto3/
+chess-link/lambda/boto3-*/
+chess-link/lambda/botocore/
+chess-link/lambda/botocore-*/
+chess-link/lambda/PIL/
+chess-link/lambda/pillow*/
+chess-link/lambda/numpy/
+chess-link/lambda/numpy*/
+chess-link/lambda/numpy.libs/
+chess-link/lambda/pillow.libs/
+chess-link/lambda/bin/
+chess-link/lambda/certifi/
+chess-link/lambda/certifi-*/
+chess-link/lambda/charset_normalizer/
+chess-link/lambda/charset_normalizer-*/
+chess-link/lambda/chess/
+chess-link/lambda/chess-*/
+chess-link/lambda/dateutil/
+chess-link/lambda/idna/
+chess-link/lambda/idna-*/
+chess-link/lambda/jmespath/
+chess-link/lambda/jmespath-*/
+chess-link/lambda/python_chess-*/
+chess-link/lambda/python_dateutil-*/
+chess-link/lambda/requests/
+chess-link/lambda/requests-*/
+chess-link/lambda/s3transfer/
+chess-link/lambda/s3transfer-*/
+chess-link/lambda/urllib3/
+chess-link/lambda/urllib3-*/
+chess-link/lambda/*.so
+chess-link/lambda/*.dist-info/
+chess-link/lambda/six.py
+
+# Build outputs
+dist/
+build/
+*.zip
+
+# Misc
+.DS_Store
+*.log

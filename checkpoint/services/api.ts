@@ -506,3 +506,70 @@ export function connectWebSocket(
   const gameId = 'legacy-game-id'; // This should be passed from the calling code
   return subscribeToGameUpdates(gameId, onOpponentMove, onStatusChange);
 }
+
+// --- Simple UCI Move Subscription (Phase 4) ---
+//
+// Subscribes to a flat channel that emits UCI-format move strings (e.g. "e2e4").
+// No game management required — useful for the new Lock-On flow.
+
+const UCI_MOVE_SUBSCRIPTION = `
+  subscription OnMove {
+    onMove {
+      uci
+    }
+  }
+`;
+
+// Stub moves in UCI format for offline testing
+const STUB_UCI_MOVES = ['e2e4', 'g1f3', 'f1b5', 'e1g1'];
+let stubUciIndex = 0;
+
+export function subscribeToMoves(
+  onMove: (uci: string) => void,
+  onStatusChange?: (status: 'connected' | 'disconnected') => void,
+): () => void {
+  if (STUB_MODE) {
+    console.log('[STUB] subscribeToMoves: will emit a UCI move in 5s');
+    onStatusChange?.('connected');
+
+    const timer = setTimeout(() => {
+      const uci = STUB_UCI_MOVES[stubUciIndex % STUB_UCI_MOVES.length];
+      stubUciIndex++;
+      console.log('[STUB] Emitting UCI move:', uci);
+      onMove(uci);
+    }, 5000);
+
+    return () => {
+      clearTimeout(timer);
+      onStatusChange?.('disconnected');
+    };
+  }
+
+  try {
+    onStatusChange?.('connected');
+
+    const subscription = (client.graphql({
+      query: UCI_MOVE_SUBSCRIPTION,
+    }) as any).subscribe({
+      next: (data: any) => {
+        const uci = data?.data?.onMove?.uci;
+        if (typeof uci === 'string' && uci.length >= 4) {
+          onMove(uci);
+        }
+      },
+      error: (error: any) => {
+        console.error('subscribeToMoves error:', error);
+        onStatusChange?.('disconnected');
+      },
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      onStatusChange?.('disconnected');
+    };
+  } catch (error) {
+    console.error('Error setting up subscribeToMoves:', error);
+    onStatusChange?.('disconnected');
+    return () => {};
+  }
+}

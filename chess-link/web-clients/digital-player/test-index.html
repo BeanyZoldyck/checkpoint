@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint - Digital Player (Test Mode)</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .test-banner {
+            background: #28a745;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .test-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 2px dashed #dee2e6;
+        }
+        .test-button {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .test-log {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-banner">
+        🧪 TEST MODE: Local Development Server  
+    </div>
+    
+    <div class="app-container">
+        <!-- Test Controls -->
+        <div class="test-controls">
+            <h3>🧪 Real-time Messaging Test</h3>
+            <p>Test bidirectional communication between mobile and desktop clients</p>
+            <button class="test-button" onclick="sendTestMessage()">📤 Send Test Message</button>
+            <button class="test-button" onclick="makeTestMove()">♟️ Make Test Move</button>
+            <button class="test-button" onclick="clearLog()">🗑️ Clear Log</button>
+            <div class="test-log" id="testLog">
+                <div>📝 Test log initialized...</div>
+            </div>
+        </div>
+
+        <!-- Original content -->
+        <header class="app-header">
+            <h1>♟️ Checkpoint</h1>
+            <p>Digital Chess Player (Test Mode)</p>
+        </header>
+
+        <!-- Join Game Section -->
+        <div id="joinSection" class="section active">
+            <div class="join-card">
+                <h2>Join Chess Game</h2>
+                <p>Enter the 6-character code from your opponent:</p>
+                
+                <div class="code-input-container">
+                    <input type="text" 
+                           id="joinCodeInput" 
+                           placeholder="ABC123" 
+                           maxlength="6" 
+                           class="join-code-input">
+                    <button id="joinGameBtn" class="primary-button">
+                        <span class="button-icon">🎯</span>
+                        Join Game
+                    </button>
+                </div>
+                
+                <div class="connection-help">
+                    <h3>How it works:</h3>
+                    <ol>
+                        <li>Your opponent creates a game on their phone</li>
+                        <li>They share a 6-character code with you</li>
+                        <li>Enter the code above to join their game</li>
+                        <li>Play chess in real-time across devices!</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chess Board Section -->
+        <div id="gameSection" class="section">
+            <div class="chess-interface">
+                <div class="game-header">
+                    <div class="game-info">
+                        <h2 id="gameTitle">♟️ Chess Game</h2>
+                        <div class="player-info">
+                            <span id="playerColorDisplay">Playing as White</span>
+                            <span id="gameCodeDisplay" class="game-code">Game: ABC123</span>
+                        </div>
+                    </div>
+                    
+                    <div class="game-status">
+                        <div class="turn-indicator">
+                            <span id="turnDisplay">Your turn</span>
+                        </div>
+                        <div class="connection-status">
+                            <span id="connectionDisplay">🟢 Connected</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chess-board-container">
+                    <div id="chessBoard" class="chess-board"></div>
+                </div>
+
+                <div class="game-sidebar">
+                    <div class="move-history">
+                        <h3>Move History</h3>
+                        <div id="movesList" class="moves-list"></div>
+                    </div>
+                    
+                    <div class="opponent-info">
+                        <h3>Physical Board</h3>
+                        <div class="physical-status">
+                            <span id="physicalPlayerStatus">🟡 Connecting...</span>
+                        </div>
+                        <div class="last-move">
+                            <strong>Last Move:</strong>
+                            <span id="lastMoveDisplay">None</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Section -->
+        <div id="loadingSection" class="section">
+            <div class="loading-card">
+                <div class="loading-spinner"></div>
+                <h2>Connecting to Game...</h2>
+                <p id="loadingMessage">Setting up the chess board...</p>
+            </div>
+        </div>
+
+        <!-- Error Section -->
+        <div id="errorSection" class="section error-state">
+            <div class="error-card">
+                <h2>⚠️ Error</h2>
+                <p id="errorMessage">Something went wrong.</p>
+                <button id="retryBtn" class="primary-button">
+                    <span class="button-icon">🔄</span>
+                    Try Again
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="../../../test-config.js"></script>
+    <script src="../../../test-socket-client.js"></script>
+    <script src="app.js"></script>
+    
+    <script>
+        // Test functions
+        function sendTestMessage() {
+            if (window.digitalApp && window.digitalApp.appSync) {
+                const message = `Test from Digital Player at ${new Date().toLocaleTimeString()}`;
+                window.digitalApp.appSync.sendTestMessage(message);
+                addTestLog(`📤 Sent: ${message}`);
+            } else {
+                addTestLog('❌ App not initialized');
+            }
+        }
+        
+        function makeTestMove() {
+            if (window.digitalApp && window.digitalApp.gameId) {
+                // Make a test move e2 to e4
+                window.digitalApp.appSync.makeMove(window.digitalApp.gameId, 'e2', 'e4');
+                addTestLog('♟️ Test move: e2→e4');
+            } else {
+                addTestLog('❌ No active game');
+            }
+        }
+        
+        function addTestLog(message) {
+            const log = document.getElementById('testLog');
+            const entry = document.createElement('div');
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('testLog').innerHTML = '<div>📝 Test log cleared...</div>';
+        }
+        
+        // Expose functions globally
+        window.addTestLog = addTestLog;
+        
+        // Listen for test responses
+        if (typeof io !== 'undefined') {
+            const socket = io('http://localhost:3000');
+            socket.on('testResponse', (data) => {
+                addTestLog(`📬 Received: ${data.response}`);
+            });
+        }
+    </script>
+</body>
+</html>

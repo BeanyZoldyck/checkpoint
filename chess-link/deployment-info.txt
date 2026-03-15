@@ -1,0 +1,38 @@
+Checkpoint Deployment Information
+Generated: Sun Mar 15 01:49:53 AM EDT 2026
+
+WEB APPLICATIONS:
+Website URL: https://d3sfiy4b77wepf.cloudfront.net
+Digital Player: https://d3sfiy4b77wepf.cloudfront.net/digital/
+Physical Player: https://d3sfiy4b77wepf.cloudfront.net/physical/
+
+MOBILE APPLICATION:
+React Native/Expo app with push notifications
+Location: ../checkpoint/
+Configuration automatically updated in services/config.ts
+
+AWS CONFIGURATION:
+GraphQL Endpoint: https://wltticbi65fl5kmnpsenbj26ky.appsync-api.us-east-2.amazonaws.com/graphql
+API Key: da2-idf5umd5m5hu3cui4hyi526dee
+Region: us-east-2
+S3 Bucket: checkpoint-web-490004654770-us-east-2
+
+FEATURES:
+✅ Real-time chess gameplay via AppSync
+✅ Computer vision for physical board moves  
+✅ Push notifications for mobile app
+✅ Progressive Web App support
+✅ Cross-platform compatibility
+
+To update the web clients:
+1. Make changes to files in web-clients/
+2. Run: aws s3 sync web-clients/digital-player/ s3://checkpoint-web-490004654770-us-east-2/digital/ --delete
+3. Run: aws s3 sync web-clients/physical-player/ s3://checkpoint-web-490004654770-us-east-2/physical/ --delete
+
+To run the mobile app:
+1. cd ../checkpoint
+2. npm start
+3. Use Expo Go app to test
+
+To destroy the stack:
+npx cdk destroy

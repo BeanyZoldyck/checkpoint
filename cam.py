@@ -101,6 +101,7 @@ class State:
     IDLE = "idle"  # no motion — waiting for a move to begin
     MOTION_DETECTED = "motion"  # motion happening — hand is over the board
     SETTLING = "settling"  # motion stopped — waiting SETTLE_SECONDS to confirm
+    PAUSED = "paused"  # execution paused — spacebar to resume
 
 
 def main():
@@ -141,7 +142,7 @@ def main():
     if args.debug:
         print("DEBUG MODE: Bedrock analysis disabled")
     print(f"Settle time: {settle_seconds}s")
-    print("Press 'q' to quit, 's' to force-capture start position")
+    print("Press 'q' to quit, 's' to force-capture, SPACE to pause/resume")
     print()
 
     # --- State ---
@@ -294,15 +295,32 @@ def main():
                     state = State.IDLE
                     print("[*] Watching for next move...")
 
-        # Update previous frame
-        prev_gray = gray_blurred
+        # --- State: paused ---
+        elif state == State.PAUSED:
+            if not args.headless:
+                cv2.putText(
+                    frame,
+                    "PAUSED - Press SPACE to resume",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 255),
+                    2,
+                )
+
+        # Update previous frame (skip during pause so resume starts clean)
+        if state != State.PAUSED:
+            prev_gray = gray_blurred
 
         # --- Display ---
         if not args.headless:
-            # Show move count
+            # Show move count and state
+            status_text = f"Move: {move_number}"
+            if state == State.PAUSED:
+                status_text += "  [PAUSED]"
             cv2.putText(
                 frame,
-                f"Move: {move_number}",
+                status_text,
                 (10, FRAME_HEIGHT - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
@@ -313,7 +331,20 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
-            elif key == ord("s") and state != State.WAITING_FOR_START:
+            elif key == ord(" "):
+                if state == State.PAUSED:
+                    # Resume — go to idle, reset prev_gray so motion
+                    # detection doesn't trigger on the stale frame diff
+                    prev_gray = gray_blurred
+                    state = State.IDLE
+                    print("[*] Resumed. Watching for moves...")
+                elif state != State.WAITING_FOR_START:
+                    state = State.PAUSED
+                    print("[*] Paused. Press SPACE to resume.")
+            elif key == ord("s") and state not in (
+                State.WAITING_FOR_START,
+                State.PAUSED,
+            ):
                 # Manual re-capture of current position
                 before_image_path = save_capture(frame, "manual")
                 print(f"[+] Manual capture: {before_image_path}")

@@ -8,8 +8,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { configureAWS, subscribeToMoves, type GameMove } from '@/services/api';
+import { configureAWS, connectPhysicalPlayer, completeCalibration, subscribeToMoves, type GameMove } from '@/services/api';
 import { getAppSyncConfig } from '@/services/config';
+import { speakMove } from '@/services/elevenlabs';
 
 interface MoveEntry {
   id: string;
@@ -54,6 +55,25 @@ export default function MoveScreen() {
   useEffect(() => {
     configureAWS(getAppSyncConfig());
 
+    // Register as the physical player so the backend creates/joins the game
+    // session and the digital player (web) can connect and make moves.
+    // Physical player always plays WHITE by convention; the web assigns itself
+    // the opposite color automatically via connectDigitalPlayer.
+    connectPhysicalPlayer('WHITE').then((game) => {
+      if (!game) {
+        console.warn('[checkpoint] connectPhysicalPlayer returned null');
+        return;
+      }
+      console.log('[checkpoint] connected as physical player, game status:', game.status);
+      if (game.status !== 'ACTIVE') {
+        return completeCalibration('{}').then((updated) => {
+          console.log('[checkpoint] game activated, status:', updated?.status);
+        });
+      }
+    }).catch((err) => {
+      console.error('[checkpoint] connectPhysicalPlayer error:', err);
+    });
+
     const unsubscribe = subscribeToMoves(
       (move: GameMove) => {
         setMoves(prev => [
@@ -68,6 +88,7 @@ export default function MoveScreen() {
             timestamp: move.timestamp ?? new Date().toISOString(),
           },
         ]);
+        speakMove(move.san);
         // Scroll to bottom on new move
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       },

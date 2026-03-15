@@ -13097,6 +13097,61 @@ async function updatePlayerConnection(connected) {
     console.error("updatePlayerConnection error:", err);
   }
 }
+var RESET_GAME = (
+  /* GraphQL */
+  `
+  mutation ResetGame {
+    resetGame {
+      id
+      status
+      currentFEN
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
+      updatedAt
+    }
+  }
+`
+);
+async function resetGame() {
+  try {
+    const result = await client.graphql({ query: RESET_GAME });
+    return result.data?.resetGame ?? null;
+  } catch (err) {
+    console.error("resetGame error:", err);
+    return null;
+  }
+}
+var COMPLETE_CALIBRATION = (
+  /* GraphQL */
+  `
+  mutation CompleteCalibration($calibrationData: String!) {
+    completeCalibration(calibrationData: $calibrationData) {
+      id
+      status
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      updatedAt
+    }
+  }
+`
+);
+async function completeCalibration(calibrationData = "{}") {
+  try {
+    const result = await client.graphql({
+      query: COMPLETE_CALIBRATION,
+      variables: { calibrationData }
+    });
+    return result.data?.completeCalibration ?? null;
+  } catch (err) {
+    console.error("completeCalibration error:", err);
+    return null;
+  }
+}
 var GET_CURRENT_GAME = (
   /* GraphQL */
   `
@@ -13172,9 +13227,11 @@ function subscribeToMoves(onMove, onStatusChange) {
   }
 }
 export {
+  completeCalibration,
   connectDigitalPlayer,
   getCurrentGame,
   makeDigitalMove,
+  resetGame,
   subscribeToMoves,
   updatePlayerConnection
 };

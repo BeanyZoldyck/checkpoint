@@ -12,7 +12,7 @@ cl {
             self.isMyTurn: bool = True;
         }
 
-        def get_position(self) -> dict {
+        def get_position() -> dict {
             board = {};
             
             # Use the correct squares for chess.js get() method
@@ -34,40 +34,32 @@ cl {
             return board;
         }
 
-        def make_move(self, move: dict) -> dict {
-            try {
-                has prom: str = "q";
-                if move.get("promotion") {
-                    prom = move["promotion"];
-                }
-                has chess_move: Any = self.engine.move({
-                    "from": move["from"],
-                    "to": move["to"],
-                    "promotion": prom
-                });
-                
-                if chess_move {
-                    self.history.push(chess_move);
-                    self.isMyTurn = not self.isMyTurn;
-                    return {
-                        "success": True,
-                        "move": chess_move,
-                        "fen": self.engine.fen(),
-                        "san": chess_move.san,
-                        "isCheck": self.engine.inCheck(),
-                        "isCheckmate": self.engine.isCheckmate(),
-                        "isStalemate": self.engine.isStalemate(),
-                        "isDraw": self.engine.isDraw()
-                    };
-                } else {
-                    return {"success": False, "error": "Invalid move"};
-                }
-            } except Exception as e {
-                return {"success": False, "error": str(e)};
+        def make_move(move: dict) -> dict {
+            prom = move["promotion"] if move.get("promotion") else "q";
+            chess_move = self.engine.move({
+                "from": move["from"],
+                "to": move["to"],
+                "promotion": prom
+            });
+            if chess_move {
+                self.history.push(chess_move);
+                self.isMyTurn = not self.isMyTurn;
+                return {
+                    "success": True,
+                    "move": chess_move,
+                    "fen": self.engine.fen(),
+                    "san": chess_move.san,
+                    "isCheck": self.engine.inCheck(),
+                    "isCheckmate": self.engine.isCheckmate(),
+                    "isStalemate": self.engine.isStalemate(),
+                    "isDraw": self.engine.isDraw()
+                };
+            } else {
+                return {"success": False, "error": "Invalid move"};
             }
         }
 
-        def get_legal_moves(self, square: str = None) -> list {
+        def get_legal_moves(square: str = None) -> list {
             if square {
                 return self.engine.moves({"square": square, "verbose": True});
             } else {
@@ -75,15 +67,15 @@ cl {
             }
         }
 
-        def is_my_turn(self) -> bool {
+        def is_my_turn() -> bool {
             return self.isMyTurn;
         }
 
-        def get_turn(self) -> str {
+        def get_turn() -> str {
             return self.engine.turn();
         }
 
-        def get_game_status(self) -> dict {
+        def get_game_status() -> dict {
             return {
                 "turn": self.engine.turn(),
                 "isCheck": self.engine.inCheck(),
@@ -96,12 +88,12 @@ cl {
             };
         }
 
-        def get_move_history(self) -> list {
+        def get_move_history() -> list {
             return self.history;
         }
 
-        def undo_move(self) -> bool {
-            has move: Any = self.engine.undo();
+        def undo_move() -> bool {
+            move = self.engine.undo();
             if move {
                 self.history.pop();
                 self.isMyTurn = not self.isMyTurn;
@@ -110,17 +102,17 @@ cl {
             return False;
         }
 
-        def reset(self) -> None {
+        def reset() -> None {
             self.engine.reset();
             self.history = [];
             self.isMyTurn = True;
         }
 
-        def load_fen(self, fen: str) -> bool {
+        def load_fen(fen: str) -> bool {
             return self.engine.load(fen);
         }
 
-        def set_player_color(self, color: str) -> None {
+        def set_player_color(color: str) -> None {
             self.playerColor = color;
             self.opponentColor = "black" if color == "white" else "white";
             self.isMyTurn = color == "white";

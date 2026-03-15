@@ -13,7 +13,7 @@ cl {
         onJoinGame?: Function,
         onStartCamera?: Function
     }) -> JsxElement {
-        has playerName: str = "";
+        has playerName: str = "Nitin";
         has createdGameCode: str = "";
         has isLoading: bool = False;
         has error: str = "";
@@ -175,6 +175,7 @@ cl {
                                 onClick={handle_join_game}
                                 disabled={isLoading}
                                 className="w-full"
+                                autoFocus={True}
                             >
                                 {get_join_btn_label()}
                             </Button>

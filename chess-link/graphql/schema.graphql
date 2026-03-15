@@ -107,6 +107,9 @@ type Mutation {
     pushToken: String!
     playerColor: PlayerColor
   ): PushTokenResponse!
+
+  # Reset game to initial state (clears board, move history, sets status to ACTIVE)
+  resetGame: Game!
 }
 
 type PushTokenResponse {

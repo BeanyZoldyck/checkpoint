@@ -11,7 +11,8 @@ cl import from "...lib.api" {
     completeCalibration,
     makeDigitalMove,
     updatePlayerConnection,
-    subscribeToMoves
+    subscribeToMoves,
+    resetGame
 }
 
 cl {
@@ -36,8 +37,11 @@ cl {
         [currentTurn, setCurrentTurn] = useState("white");
         [isSendingMove, setIsSendingMove] = useState(False);
         [isStartingGame, setIsStartingGame] = useState(False);
+        [isResetting, setIsResetting] = useState(False);
 
         unsubRef = useRef(None);
+        stateRef = useRef({"game": None, "moveHistory": [], "playerColor": "white"});
+        stateRef.current = {"game": game, "moveHistory": moveHistory, "playerColor": playerColor};
 
         def refresh_position(g: Any) -> None {
             if g {
@@ -50,29 +54,30 @@ cl {
         }
 
         def apply_incoming_move(move: dict) -> None {
-            if not game { return; }
-            move_color = (move["playerColor"] if move["playerColor"] else "").lower();
-            if move_color == playerColor { return; }
+            cur = stateRef.current;
+            if not cur["game"] { return; }
+            move_color = (move["playerColor"] if move["playerColor"] else "").toLowerCase();
+            if move_color == cur["playerColor"] { return; }
 
-            result = game.make_move({"from": move["from"], "to": move["to"]});
+            result = cur["game"].make_move({"from": move["from"], "to": move["to"]});
             if result["success"] {
-                refresh_position(game);
+                refresh_position(cur["game"]);
                 setLastMove({"from": move["from"], "to": move["to"]});
-                newHistory = moveHistory.slice(0);
+                newHistory = cur["moveHistory"].slice(0);
                 newHistory.push({"san": result["san"], "color": move_color});
                 setMoveHistory(newHistory);
                 new_turn = "white" if move_color == "black" else "black";
                 setCurrentTurn(new_turn);
-                if result.get("isCheckmate") {
-                    setStatusMessage(f"Checkmate! {move_color.capitalize()} wins!");
+                if result["isCheckmate"] {
+                    setStatusMessage(f"Checkmate! {move_color.charAt(0).toUpperCase() + move_color.slice(1)} wins!");
                     setGameStatus("COMPLETED");
-                } elif result.get("isStalemate") or result.get("isDraw") {
+                } elif result["isStalemate"] or result["isDraw"] {
                     setStatusMessage("Draw!");
                     setGameStatus("COMPLETED");
-                } elif result.get("isCheck") {
+                } elif result["isCheck"] {
                     setStatusMessage("Check! Your turn.");
                 } else {
-                    setStatusMessage("Your turn!" if new_turn == playerColor else "Opponent's turn...");
+                    setStatusMessage("Your turn!" if new_turn == cur["playerColor"] else "Opponent's turn...");
                 }
             }
         }
@@ -84,21 +89,36 @@ cl {
 
             connectDigitalPlayer().then(lambda(gameData: Any) -> None {
                 if gameData {
-                    setGameStatus(gameData["status"] if gameData["status"] else "WAITING_FOR_PLAYERS");
-                    if gameData["status"] == "ACTIVE" and gameData["currentFEN"] {
-                        g.load_fen(gameData["currentFEN"]);
-                        refresh_position(g);
-                    }
-                    dc = (gameData["digitalPlayerColor"] if gameData["digitalPlayerColor"] else "WHITE").lower();
+                    dc = (gameData["digitalPlayerColor"] if gameData["digitalPlayerColor"] else "WHITE").toLowerCase();
                     setPlayerColor(dc);
                     g.set_player_color(dc);
                     setOpponentConnected(gameData["physicalPlayerConnected"] or False);
                     if gameData["physicalPlayerConnected"] {
                         setOpponentName("Physical Player");
                     }
-                    turn = (gameData["currentTurn"] if gameData["currentTurn"] else "WHITE").lower();
-                    setCurrentTurn(turn);
-                    setStatusMessage("Your turn!" if turn == dc else "Waiting for opponent's move...");
+
+                    def apply_active_state(status: str, fen: str, turn_raw: str) -> None {
+                        setGameStatus(status);
+                        if fen { g.load_fen(fen); refresh_position(g); }
+                        turn = turn_raw.toLowerCase() if turn_raw else "white";
+                        setCurrentTurn(turn);
+                        setStatusMessage("Your turn!" if turn == dc else "Waiting for opponent's move...");
+                    }
+
+                    if gameData["status"] == "ACTIVE" {
+                        apply_active_state("ACTIVE", gameData["currentFEN"], gameData["currentTurn"] if gameData["currentTurn"] else "WHITE");
+                    } else {
+                        # Auto-activate the game so moves can be sent immediately
+                        setStatusMessage("Activating game...");
+                        completeCalibration().then(lambda(result: Any) -> None {
+                            fen = result["currentFEN"] if result and result.get("currentFEN") else gameData["currentFEN"];
+                            turn_raw = result["currentTurn"] if result and result.get("currentTurn") else "WHITE";
+                            apply_active_state("ACTIVE", fen, turn_raw);
+                        }).catch(lambda(err: Any) -> None {
+                            # completeCalibration failed — still set ACTIVE locally so the board is usable
+                            apply_active_state("ACTIVE", gameData["currentFEN"], gameData["currentTurn"] if gameData["currentTurn"] else "WHITE");
+                        });
+                    }
                 }
             }).catch(lambda(err: Any) -> None {
                 setStatusMessage("Could not reach server — moves will not sync.");
@@ -116,6 +136,37 @@ cl {
                 updatePlayerConnection(False);
             };
         }, []);
+
+        def handle_test_e4() -> None {
+            if not game { return; }
+            if isSendingMove { return; }
+            result = game.make_move({"from": "e2", "to": "e4", "promotion": "q"});
+            if not result["success"] {
+                setStatusMessage("e4 not available (already played or illegal).");
+                return;
+            }
+            refresh_position(game);
+            setLastMove({"from": "e2", "to": "e4"});
+            newHistory = moveHistory.slice(0);
+            newHistory.push({"san": result["san"], "color": playerColor});
+            setMoveHistory(newHistory);
+            opp_turn = "black" if currentTurn == "white" else "white";
+            setCurrentTurn(opp_turn);
+            setStatusMessage("Waiting for opponent's move...");
+            setIsSendingMove(True);
+            makeDigitalMove("e2", "e4", None).then(lambda(r: Any) -> None {
+                setIsSendingMove(False);
+            }).catch(lambda(err: Any) -> None {
+                setIsSendingMove(False);
+                console.error("test e4 failed:", err);
+                game.undo_move();
+                refresh_position(game);
+                setMoveHistory(newHistory.slice(0, -1));
+                setCurrentTurn(currentTurn);
+                errMsg = (err.message if err and err.message else String(err));
+                setStatusMessage(f"Failed: {errMsg}");
+            });
+        }
 
         def handle_move(move: dict) -> None {
             if not game { return; }
@@ -144,13 +195,13 @@ cl {
             opp_turn = "black" if playerColor == "white" else "white";
             setCurrentTurn(opp_turn);
 
-            if result.get("isCheckmate") {
+            if result["isCheckmate"] {
                 setStatusMessage("Checkmate! You win!");
                 setGameStatus("COMPLETED");
-            } elif result.get("isStalemate") or result.get("isDraw") {
+            } elif result["isStalemate"] or result["isDraw"] {
                 setStatusMessage("Draw!");
                 setGameStatus("COMPLETED");
-            } elif result.get("isCheck") {
+            } elif result["isCheck"] {
                 setStatusMessage("Check! Waiting for opponent...");
             } else {
                 setStatusMessage("Waiting for opponent's move...");
@@ -162,32 +213,57 @@ cl {
                 setIsSendingMove(False);
             }).catch(lambda(err: Any) -> None {
                 setIsSendingMove(False);
+                console.error("makeDigitalMove failed:", err);
                 if game { game.undo_move(); }
                 refresh_position(game);
                 setMoveHistory(newHistory.slice(0, -1));
                 setCurrentTurn(playerColor);
-                setStatusMessage("Failed to send move. Try again.");
+                errMsg = (err.message if err and err.message else String(err));
+                setStatusMessage(f"Failed: {errMsg}");
             });
         }
 
         def handle_start_game() -> None {
             setIsStartingGame(True);
-            setGameStatus("ACTIVE");
-            if game {
-                game.reset();
-                refresh_position(game);
-            }
-            setStatusMessage("Your turn!" if currentTurn == playerColor else "Waiting for opponent's move...");
             completeCalibration().then(lambda(result: Any) -> None {
                 setIsStartingGame(False);
+                setGameStatus("ACTIVE");
+                if game {
+                    game.reset();
+                    refresh_position(game);
+                }
+                # Use the turn returned by the server; fall back to current state.
+                serverTurn = (result["currentTurn"] if result and result.get("currentTurn") else None);
+                activeTurn = serverTurn.toLowerCase() if serverTurn else currentTurn;
+                setCurrentTurn(activeTurn);
+                cur_color = stateRef.current["playerColor"];
+                setStatusMessage("Your turn!" if activeTurn == cur_color else "Waiting for opponent's move...");
             }).catch(lambda(err: Any) -> None {
                 setIsStartingGame(False);
+                setStatusMessage("Failed to start game. Try again.");
             });
         }
 
         def handle_resign() -> None {
             setStatusMessage("You resigned.");
             setGameStatus("COMPLETED");
+        }
+
+        def handle_reset_game() -> None {
+            setIsResetting(True);
+            resetGame().then(lambda(_result: Any) -> None {
+                g = create_game();
+                setGame(g);
+                refresh_position(g);
+                setMoveHistory([]);
+                setLastMove({});
+                setCurrentTurn("white");
+                setStatusMessage("Your turn!" if playerColor == "white" else "Waiting for opponent's move...");
+                setIsResetting(False);
+            }).catch(lambda(_err: Any) -> None {
+                setIsResetting(False);
+                setStatusMessage("Failed to reset game.");
+            });
         }
 
         def handle_leave_game() -> None {
@@ -256,12 +332,12 @@ cl {
         }
 
         def format_move_history() -> list {
-            has formatted: list = [];
-            has i: int = 0;
+            formatted = [];
+            i = 0;
             while i < len(moveHistory) {
-                has move_number: int = (i // 2) + 1;
-                has white_move: str = moveHistory[i]["san"] if i < len(moveHistory) else "";
-                has black_move: str = moveHistory[i + 1]["san"] if i + 1 < len(moveHistory) else "";
+                move_number = int(i / 2) + 1;
+                white_move = moveHistory[i]["san"] if i < len(moveHistory) else "";
+                black_move = moveHistory[i + 1]["san"] if i + 1 < len(moveHistory) else "";
                 formatted.append({
                     "number": move_number,
                     "white": white_move,
@@ -273,11 +349,11 @@ cl {
         }
 
         def render_move_history_items() -> list {
-            has items: list = [];
-            has formatted: list = format_move_history();
-            has i: int = 0;
+            items = [];
+            formatted = format_move_history();
+            i = 0;
             while i < len(formatted) {
-                has mv: dict = formatted[i];
+                mv = formatted[i];
                 items.append(<div key={i} className="flex items-center gap-4 text-sm font-mono">
                     <span className="w-6 text-muted-foreground">{mv.number}.</span>
                     <span className="w-12">{mv.white}</span>
@@ -338,6 +414,20 @@ cl {
                             >
                                 {"Starting..." if isStartingGame else "Start Game"}
                             </Button>}
+                            <Button
+                                variant="secondary"
+                                onClick={lambda() -> None { handle_test_e4(); }}
+                                disabled={gameStatus != "ACTIVE" or isSendingMove}
+                            >
+                                Test: e4
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={handle_reset_game}
+                                disabled={isResetting}
+                            >
+                                {"Resetting..." if isResetting else "Reset Board"}
+                            </Button>
                             <Button
                                 variant="destructive"
                                 onClick={handle_resign}

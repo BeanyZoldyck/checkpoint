@@ -1,4 +1,4 @@
-# Product Requirements Document: ChessLink
+# Product Requirements Document: Checkpoint
 ### Open-Source DGT Board Alternative via Computer Vision
 
 **Version:** 1.0 (MVP)

@@ -20,6 +20,23 @@ import type { AppSyncConfig } from './config';
 // Amplify bootstrap
 // ---------------------------------------------------------------------------
 
+// Lazily-created client — we must not call generateClient() until after
+// configureAWS() has run, otherwise Amplify has no endpoint configured and
+// every GraphQL call / subscription silently fails.
+let _client: ReturnType<typeof generateClient> | null = null;
+
+function getClient() {
+  if (!_client) {
+    _client = generateClient();
+  }
+  return _client;
+}
+
+// Call this to force a fresh client after (re-)configuring Amplify.
+export function resetClient() {
+  _client = null;
+}
+
 export function configureAWS(config: AppSyncConfig) {
   Amplify.configure({
     API: {
@@ -31,9 +48,9 @@ export function configureAWS(config: AppSyncConfig) {
       },
     },
   });
+  // Reset the cached client so the next operation picks up the new endpoint.
+  _client = null;
 }
-
-const client = generateClient();
 
 // STUB_MODE: true when no AppSync endpoint is available (local dev without AWS)
 // Evaluated lazily so configureAWS() has a chance to run first.
@@ -127,7 +144,7 @@ export async function connectPhysicalPlayer(
   }
 
   try {
-    const result = await (client.graphql({
+    const result = await (getClient().graphql({
       query: CONNECT_PHYSICAL_PLAYER_MUTATION,
       variables: { playerColor },
     }) as any);
@@ -174,7 +191,7 @@ export async function getUploadUrl(): Promise<UploadUrlResult | null> {
   }
 
   try {
-    const result = await (client.graphql({
+    const result = await (getClient().graphql({
       query: UPLOAD_BOARD_IMAGE_MUTATION,
       variables: { imageData: 'presigned-url-request' },
     }) as any);
@@ -243,7 +260,7 @@ export async function completeCalibration(calibrationData: string): Promise<Game
   }
 
   try {
-    const result = await (client.graphql({
+    const result = await (getClient().graphql({
       query: COMPLETE_CALIBRATION_MUTATION,
       variables: { calibrationData },
     }) as any);
@@ -323,7 +340,7 @@ export function subscribeToMoves(
   try {
     onStatusChange?.('connected');
 
-    const subscription = (client.graphql({
+    const subscription = (getClient().graphql({
       query: ON_GAME_EVENT_SUBSCRIPTION,
     }) as any).subscribe({
       next: (data: any) => {

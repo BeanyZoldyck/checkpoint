@@ -80,7 +80,7 @@ class CheckpointStack(Stack):
             self,
             "GameResolvers",
             runtime=_lambda.Runtime.PYTHON_3_9,
-            handler="game_resolvers.create_game_resolver",  # Will be overridden per resolver
+            handler="game_resolvers.handler",
             code=_lambda.Code.from_asset("../lambda"),
             layers=[dependencies_layer],
             environment=lambda_environment,

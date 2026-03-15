@@ -77,42 +77,49 @@ def connect_physical_player_resolver(event: Dict[str, Any], context) -> Dict[str
     """
     try:
         args = event["arguments"]
-        physical_player_color = args["playerColor"]
+        # Physical player is always BLACK so the digital (web) player is WHITE
+        # and can make the first move without waiting.
+        physical_player_color = "BLACK"
+        _ = args.get("playerColor")  # accepted but ignored
 
         # Use consistent game ID for single game session
         game_id = generate_game_id()
 
-        # Determine digital player color
-        digital_player_color = "BLACK" if physical_player_color == "WHITE" else "WHITE"
+        # Digital player is always WHITE
+        digital_player_color = "WHITE"
 
         # Check if game already exists
         response = games_table.get_item(Key={"id": game_id})
 
         if "Item" in response:
-            # Game exists, update physical player connection
-            game = response["Item"]
-            updated_game = games_table.update_item(
-                Key={"id": game_id},
-                UpdateExpression="""
-                    SET physicalPlayerConnected = :connected,
-                        physicalPlayerColor = :physicalColor,
-                        digitalPlayerColor = :digitalColor,
-                        #status = :status,
-                        updatedAt = :updated
-                """,
-                ExpressionAttributeNames={"#status": "status"},
-                ExpressionAttributeValues={
-                    ":connected": True,
-                    ":physicalColor": physical_player_color,
-                    ":digitalColor": digital_player_color,
-                    ":status": "WAITING_FOR_PLAYERS"
-                    if not game.get("digitalPlayerConnected", False)
-                    else "CALIBRATING",
-                    ":updated": get_current_timestamp(),
-                },
-                ReturnValues="ALL_NEW",
+            # Game exists — merge existing fields and write a complete record back
+            # so AppSync always receives every required non-nullable field.
+            existing = response["Item"]
+            initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            now = get_current_timestamp()
+            game = {
+                "id": game_id,
+                "status": "ACTIVE"
+                if existing.get("digitalPlayerConnected", False)
+                else "WAITING_FOR_PLAYERS",
+                "currentFEN": existing.get("currentFEN") or initial_fen,
+                "currentTurn": existing.get("currentTurn") or "WHITE",
+                "physicalPlayerColor": physical_player_color,
+                "digitalPlayerColor": digital_player_color,
+                "moveHistory": existing.get("moveHistory") or [],
+                "physicalPlayerConnected": True,
+                "digitalPlayerConnected": bool(
+                    existing.get("digitalPlayerConnected", False)
+                ),
+                "lastImageS3Key": existing.get("lastImageS3Key"),
+                "createdAt": existing.get("createdAt") or now,
+                "updatedAt": now,
+            }
+            games_table.put_item(Item=game)
+            print(
+                f"Updated single game session with physical player color {physical_player_color}"
             )
-            return updated_game["Attributes"]
+            return game
         else:
             # Create new game
             initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -161,16 +168,19 @@ def connect_digital_player_resolver(event: Dict[str, Any], context) -> Dict[str,
         existing = response.get("Item")
 
         if existing:
-            # Merge: preserve physical-player fields, mark digital player connected
+            # Merge: preserve physical-player fields, mark digital player connected.
+            # Digital player is always WHITE so it can move first.
+            phys_color = existing.get("physicalPlayerColor") or "BLACK"
+            dig_color = "WHITE" if phys_color == "BLACK" else "BLACK"
             game = {
                 "id": game_id,
-                "status": "CALIBRATING"
+                "status": "ACTIVE"
                 if existing.get("physicalPlayerConnected")
                 else "WAITING_FOR_PLAYERS",
                 "currentFEN": existing.get("currentFEN") or initial_fen,
                 "currentTurn": existing.get("currentTurn") or "WHITE",
-                "physicalPlayerColor": existing.get("physicalPlayerColor") or "WHITE",
-                "digitalPlayerColor": existing.get("digitalPlayerColor") or "BLACK",
+                "physicalPlayerColor": phys_color,
+                "digitalPlayerColor": dig_color,
                 "moveHistory": existing.get("moveHistory") or [],
                 "physicalPlayerConnected": bool(
                     existing.get("physicalPlayerConnected", False)
@@ -181,13 +191,14 @@ def connect_digital_player_resolver(event: Dict[str, Any], context) -> Dict[str,
                 "updatedAt": now,
             }
         else:
+            # No game yet — digital player is WHITE so it can move first.
             game = {
                 "id": game_id,
                 "status": "WAITING_FOR_PLAYERS",
                 "currentFEN": initial_fen,
                 "currentTurn": "WHITE",
-                "physicalPlayerColor": "WHITE",
-                "digitalPlayerColor": "BLACK",
+                "physicalPlayerColor": "BLACK",
+                "digitalPlayerColor": "WHITE",
                 "moveHistory": [],
                 "physicalPlayerConnected": False,
                 "digitalPlayerConnected": True,
@@ -479,6 +490,48 @@ def complete_calibration_resolver(event: Dict[str, Any], context) -> Dict[str, A
         raise Exception(f"Failed to complete calibration: {str(e)}")
 
 
+def reset_game_resolver(event: Dict[str, Any], context) -> Dict[str, Any]:
+    """
+    Reset the game to initial board state, clearing move history.
+    Keeps both players connected and sets status back to ACTIVE.
+    """
+    try:
+        game_id = generate_game_id()
+        initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        now = get_current_timestamp()
+
+        # Fetch existing game to preserve player colors and connection state
+        response = games_table.get_item(Key={"id": game_id})
+        existing = response.get("Item", {})
+
+        game = {
+            "id": game_id,
+            "status": "ACTIVE",
+            "currentFEN": initial_fen,
+            "currentTurn": "WHITE",
+            "physicalPlayerColor": existing.get("physicalPlayerColor", "WHITE"),
+            "digitalPlayerColor": existing.get("digitalPlayerColor", "BLACK"),
+            "moveHistory": [],
+            "physicalPlayerConnected": bool(
+                existing.get("physicalPlayerConnected", False)
+            ),
+            "digitalPlayerConnected": bool(
+                existing.get("digitalPlayerConnected", False)
+            ),
+            "lastImageS3Key": None,
+            "createdAt": existing.get("createdAt", now),
+            "updatedAt": now,
+        }
+
+        games_table.put_item(Item=game)
+        print(f"Game {game_id} reset to initial state")
+        return game
+
+    except Exception as e:
+        print(f"Error resetting game: {str(e)}")
+        raise Exception(f"Failed to reset game: {str(e)}")
+
+
 def get_game_resolver(event: Dict[str, Any], context) -> Optional[Dict[str, Any]]:
     """
     Get game by ID
@@ -546,6 +599,7 @@ RESOLVER_MAP = {
     "recordPhysicalMove": record_physical_move_resolver,
     "updatePlayerConnection": update_player_connection_resolver,
     "completeCalibration": complete_calibration_resolver,
+    "resetGame": reset_game_resolver,
     "registerPushToken": register_push_token_resolver,
 }
 

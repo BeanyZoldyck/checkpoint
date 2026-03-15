@@ -15,10 +15,10 @@ cl {
         has draggedPiece: str = "";
         has draggedSquare: str = "";
         has isDragging: bool = False;
-        has boardSize: int = props.size if props.size else 480;
-        has squareSize: int = boardSize // 8;
-        has orientation: str = props.orientation if props.orientation else "white";
-        has showCoords: bool = props.showCoordinates if props.showCoordinates else True;
+        boardSize = props.size if props.size else 480;
+        squareSize = int(boardSize / 8);
+        orientation = props.orientation if props.orientation else "white";
+        showCoords = props.showCoordinates if props.showCoordinates else True;
 
         def files() -> list {
             if orientation == "white" {
@@ -37,8 +37,8 @@ cl {
         }
 
         def square_color(file: str, rank: str) -> str {
-            has file_index: int = ord(file) - ord('a');
-            has rank_index: int = int(rank) - 1;
+            file_index = ord(file) - ord('a');
+            rank_index = int(rank) - 1;
             
             if (file_index + rank_index) % 2 == 0 {
                 return "bg-amber-100 dark:bg-amber-200";  # Light squares
@@ -121,7 +121,7 @@ cl {
             return <>
                 <div className="flex absolute bottom-0 left-0 w-full">
                     {files().map(lambda(file: str, index: int) -> JsxElement {
-                        has file_color: str = "#92400e" if square_color(file, "1") == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
+                        file_color = "#92400e" if square_color(file, "1") == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
                         return <div 
                             key={file}
                             className="flex items-end justify-end text-xs font-medium pr-1 pb-1"
@@ -137,7 +137,7 @@ cl {
                 </div>
                 <div className="flex flex-col absolute top-0 left-0 h-full">
                     {ranks().map(lambda(rank: str, index: int) -> JsxElement {
-                        has rank_color: str = "#92400e" if square_color("a", rank) == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
+                        rank_color = "#92400e" if square_color("a", rank) == "bg-amber-100 dark:bg-amber-200" else "#fbbf24";
                         return <div 
                             key={rank}
                             className="flex items-start justify-start text-xs font-medium pl-1 pt-1"

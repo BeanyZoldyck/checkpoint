@@ -157,6 +157,63 @@ export async function updatePlayerConnection(connected: boolean): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
+
+const RESET_GAME = /* GraphQL */ `
+  mutation ResetGame {
+    resetGame {
+      id
+      status
+      currentFEN
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      moveHistory
+      physicalPlayerConnected
+      digitalPlayerConnected
+      updatedAt
+    }
+  }
+`;
+
+export async function resetGame(): Promise<Game | null> {
+  try {
+    const result = await (client.graphql({ query: RESET_GAME }) as any);
+    return result.data?.resetGame ?? null;
+  } catch (err) {
+    console.error('resetGame error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+const COMPLETE_CALIBRATION = /* GraphQL */ `
+  mutation CompleteCalibration($calibrationData: String!) {
+    completeCalibration(calibrationData: $calibrationData) {
+      id
+      status
+      currentTurn
+      physicalPlayerColor
+      digitalPlayerColor
+      updatedAt
+    }
+  }
+`;
+
+export async function completeCalibration(calibrationData = '{}'): Promise<Game | null> {
+  try {
+    const result = await (client.graphql({
+      query: COMPLETE_CALIBRATION,
+      variables: { calibrationData },
+    }) as any);
+    return result.data?.completeCalibration ?? null;
+  } catch (err) {
+    console.error('completeCalibration error:', err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Query
 // ---------------------------------------------------------------------------
 

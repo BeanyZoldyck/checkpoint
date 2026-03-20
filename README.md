@@ -1,4 +1,4 @@
-# Checkpoint / ChessLink — Architecture
+# Checkpoint Architecture
 
 **Open-source DGT board alternative: physical chess board + phone camera + computer vision + web/mobile clients.**
 

@@ -385,6 +385,16 @@ def main():
                     after_image_path = save_capture(frame, f"move_{move_number:03d}")
                     print(f"[+] Move {move_number} captured: {after_image_path}")
 
+                    # Compute difference between before and after images
+                    before_img = cv2.imread(before_image_path)
+                    after_img = cv2.imread(after_image_path)
+                    if before_img is not None and after_img is not None:
+                        before_gray = cv2.cvtColor(before_img, cv2.COLOR_BGR2GRAY)
+                        after_gray = cv2.cvtColor(after_img, cv2.COLOR_BGR2GRAY)
+                        diff = cv2.absdiff(before_gray, after_gray)
+                        diff_image_path = save_capture(diff, f"diff_{move_number:03d}")
+                        print(f"[+] Difference image saved: {diff_image_path}")
+
                     # --- Detect the move ---
                     if args.debug:
                         print(
@@ -398,6 +408,7 @@ def main():
                             result = detect_fn(
                                 before_local=before_image_path,
                                 after_local=after_image_path,
+                                diff_local=diff_image_path,
                             )
                             move_san = result.get("move_san", "?")
                             move_uci = result.get("move_uci", "?")

@@ -346,6 +346,7 @@ def detect_move(
     after_key: str | None = None,
     before_local: str | None = None,
     after_local: str | None = None,
+    diff_local: str | None = None,
 ) -> dict:
     """Detect the move made between two board images."""
     if before_local and after_local:
@@ -365,8 +366,13 @@ def detect_move(
     content = [
         _build_image_content(before_b64, before_mt, model_id),
         _build_image_content(after_b64, after_mt, model_id),
-        _build_text_content(MOVE_DETECTION_PROMPT, model_id),
     ]
+
+    if diff_local:
+        diff_b64, diff_mt = get_image_from_file(diff_local)
+        content.insert(1, _build_image_content(diff_b64, diff_mt, model_id))
+
+    content.append(_build_text_content(MOVE_DETECTION_PROMPT, model_id))
 
     result = invoke_bedrock(content)
 
